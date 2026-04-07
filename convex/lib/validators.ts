@@ -192,6 +192,39 @@ export const postListResponseValidator = v.object({
   hasMore: v.boolean(),
 });
 
+export const postGroupItemValidator = v.object({
+  id: v.string(),
+  group: v.string(),
+  content: v.string(),
+  publishDate: v.string(),
+  actualDate: v.optional(v.string()),
+  releaseId: v.optional(v.string()),
+  releaseURL: v.optional(v.string()),
+  state: postStateValidator,
+  delay: v.number(),
+  image: v.array(v.any()),
+  settings: v.optional(v.any()),
+  tags: v.array(postCalendarTagValidator),
+  integration: v.optional(
+    v.object({
+      id: v.string(),
+      providerIdentifier: v.string(),
+      name: v.string(),
+      picture: v.string(),
+    })
+  ),
+  parentPostId: v.optional(v.string()),
+  intervalInDays: v.optional(v.number()),
+});
+
+export const postGroupResponseValidator = v.object({
+  group: v.string(),
+  posts: v.array(postGroupItemValidator),
+  integrationPicture: v.optional(v.string()),
+  integration: v.string(),
+  settings: v.any(),
+});
+
 export const postSummaryValidator = v.object({
   _id: v.id('posts'),
   organizationId: v.id('organizations'),

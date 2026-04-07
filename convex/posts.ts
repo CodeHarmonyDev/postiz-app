@@ -8,6 +8,7 @@ import {
 import {
   postCalendarItemValidator,
   postCalendarResponseValidator,
+  postGroupResponseValidator,
   postListResponseValidator,
   postStateValidator,
   postSummaryValidator,
@@ -88,6 +89,68 @@ async function mapPostToCalendarItem(
     },
     intervalInDays: post.repeatIntervalDays,
     actualDate: actualDate ? toUtcMinuteString(actualDate) : undefined,
+  };
+}
+
+async function mapPostToGroupItem(
+  ctx: any,
+  post: any,
+  includeIntegration: boolean
+): Promise<any> {
+  const integration = includeIntegration ? await ctx.db.get(post.integrationId) : null;
+
+  if (includeIntegration && (!integration || integration.isDeleted)) {
+    return null;
+  }
+
+  const postTags = await ctx.db
+    .query('postTags')
+    .withIndex('by_post_id_and_tag_id', (q: any) => q.eq('postId', post._id))
+    .collect();
+
+  const tags = (
+    await Promise.all(
+      postTags.map(async (postTag: any) => {
+        const tag = await ctx.db.get(postTag.tagId);
+
+        if (!tag || tag.isDeleted) {
+          return null;
+        }
+
+        return {
+          tag: {
+            id: String(tag._id),
+            name: tag.name,
+            color: tag.color,
+          },
+        };
+      })
+    )
+  ).filter(isDefined);
+
+  return {
+    id: String(post._id),
+    group: post.groupId,
+    content: post.content,
+    publishDate: toUtcMinuteString(post.publishAt),
+    actualDate: undefined as string | undefined,
+    releaseId: post.releaseId,
+    releaseURL: post.releaseUrl,
+    state: post.state,
+    delay: 0,
+    image: JSON.parse(post.imageJson || '[]'),
+    settings: undefined as unknown,
+    tags,
+    integration: includeIntegration && integration
+      ? {
+          id: String(integration._id),
+          providerIdentifier: integration.providerIdentifier,
+          name: integration.name,
+          picture: integration.pictureUrl || '/no-picture.jpg',
+        }
+      : undefined,
+    parentPostId: post.parentPostId ? String(post.parentPostId) : undefined,
+    intervalInDays: post.repeatIntervalDays,
   };
 }
 
@@ -255,6 +318,76 @@ export const listForCalendar = query({
   },
 });
 
+export const getGroup = query({
+  args: {
+    organizationId: v.optional(v.id('organizations')),
+    groupId: v.string(),
+  },
+  returns: v.union(v.null(), postGroupResponseValidator),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      return null;
+    }
+
+    const { organizationId } = await resolvePostScope(
+      ctx,
+      identity.subject,
+      args.organizationId
+    );
+
+    const posts = await ctx.db
+      .query('posts')
+      .withIndex('by_organization_id_and_group_id', (q: any) =>
+        q.eq('organizationId', organizationId).eq('groupId', args.groupId)
+      )
+      .collect();
+
+    const activePosts = posts.filter((post: any) => !post.isDeleted);
+    const rootPosts = activePosts.filter((post: any) => !post.parentPostId);
+    const rootPost = rootPosts[0];
+
+    if (!rootPost) {
+      return null;
+    }
+
+    const orderedPosts: Array<any> = [];
+    let currentPost: any = rootPost;
+
+    while (currentPost) {
+      orderedPosts.push(currentPost);
+      const currentPostId: string = String(currentPost._id);
+      currentPost =
+        activePosts.find(
+          (post: any) => post.parentPostId && String(post.parentPostId) === currentPostId
+        ) || null;
+    }
+
+    const mappedPosts = (
+      await Promise.all(
+        orderedPosts.map((post, index) =>
+          mapPostToGroupItem(ctx, post, index === 0)
+        )
+      )
+    ).filter(isDefined);
+
+    const rootIntegration = await ctx.db.get(rootPost.integrationId);
+
+    if (!rootIntegration || rootIntegration.isDeleted) {
+      return null;
+    }
+
+    return {
+      group: rootPost.groupId,
+      posts: mappedPosts,
+      integrationPicture: rootIntegration.pictureUrl || '/no-picture.jpg',
+      integration: String(rootIntegration._id),
+      settings: JSON.parse(rootPost.settingsJson || '{}'),
+    };
+  },
+});
+
 export const listUpcoming = query({
   args: {
     organizationId: v.optional(v.id('organizations')),
@@ -396,6 +529,94 @@ export const findNextAvailableSlot = query({
 
       currentDayStart += 24 * 60 * 60 * 1000;
     }
+  },
+});
+
+export const deleteGroup = mutation({
+  args: {
+    organizationId: v.optional(v.id('organizations')),
+    groupId: v.string(),
+  },
+  returns: v.object({
+    error: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const { organizationId } = await resolvePostScope(
+      ctx,
+      identity.subject,
+      args.organizationId
+    );
+
+    const posts = await ctx.db
+      .query('posts')
+      .withIndex('by_organization_id_and_group_id', (q: any) =>
+        q.eq('organizationId', organizationId).eq('groupId', args.groupId)
+      )
+      .collect();
+
+    await Promise.all(
+      posts.map((post: any) =>
+        ctx.db.patch(post._id, {
+          isDeleted: true,
+          deletedAt: Date.now(),
+        })
+      )
+    );
+
+    return { error: true };
+  },
+});
+
+export const changeDate = mutation({
+  args: {
+    organizationId: v.optional(v.id('organizations')),
+    postId: v.id('posts'),
+    publishAt: v.number(),
+    action: v.union(v.literal('schedule'), v.literal('update')),
+  },
+  returns: v.object({
+    id: v.string(),
+    publishDate: v.string(),
+    state: postStateValidator,
+  }),
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const { organizationId } = await resolvePostScope(
+      ctx,
+      identity.subject,
+      args.organizationId
+    );
+
+    const post = await ctx.db.get(args.postId);
+
+    if (!post || post.organizationId !== organizationId || post.isDeleted) {
+      throw new Error('Post not found');
+    }
+
+    const nextState =
+      args.action === 'schedule'
+        ? post.state === 'DRAFT'
+          ? 'DRAFT'
+          : 'QUEUE'
+        : post.state;
+
+    await ctx.db.patch(post._id, {
+      publishAt: args.publishAt,
+      ...(args.action === 'schedule'
+        ? {
+            state: nextState,
+            releaseId: undefined,
+            releaseUrl: undefined,
+          }
+        : {}),
+    });
+
+    return {
+      id: String(post._id),
+      publishDate: toUtcMinuteString(args.publishAt),
+      state: nextState,
+    };
   },
 });
 

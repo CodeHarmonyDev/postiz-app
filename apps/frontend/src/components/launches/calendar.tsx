@@ -57,6 +57,7 @@ import copy from 'copy-to-clipboard';
 import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
 import { Button } from '@gitroom/react/form/button';
+import { usePostActionsApi } from '@gitroom/frontend/components/launches/helpers/use.post-actions-api';
 import { usePostSlot } from '@gitroom/frontend/components/launches/helpers/use.post.slot';
 
 // Extend dayjs with necessary plugins
@@ -101,6 +102,7 @@ const usePostActions = (onMutate?: () => void) => {
   const toaster = useToaster();
   const { integrations, reloadCalendarView } = useCalendar();
   const findNextSlot = usePostSlot();
+  const { getGroup, deleteGroup } = usePostActionsApi();
 
   const mutate = useCallback(() => {
     reloadCalendarView();
@@ -114,7 +116,12 @@ const usePostActions = (onMutate?: () => void) => {
         publishDate: loadPost.actualDate || loadPost.publishDate,
       };
 
-      const data = await (await fetch(`/posts/group/${post.group}`)).json();
+      const data = await getGroup(post.group);
+
+      if (!data) {
+        throw new Error('Post group not found');
+      }
+
       const date = !isDuplicate
         ? null
         : await findNextSlot();
@@ -171,7 +178,7 @@ const usePostActions = (onMutate?: () => void) => {
         title: ``,
       });
     },
-    [fetch, findNextSlot, integrations, modal, mutate]
+    [findNextSlot, getGroup, integrations, modal, mutate]
   );
 
   const copyDebugJson = useCallback(
@@ -208,9 +215,7 @@ const usePostActions = (onMutate?: () => void) => {
         return;
       }
 
-      await fetch(`/posts/${post.group}`, {
-        method: 'DELETE',
-      });
+      await deleteGroup(post.group);
 
       toaster.show(
         t('post_deleted_successfully', 'Post deleted successfully'),
@@ -219,7 +224,7 @@ const usePostActions = (onMutate?: () => void) => {
 
       mutate();
     },
-    [toaster, t, fetch, mutate]
+    [deleteGroup, mutate, t, toaster]
   );
 
   const openStatistics = useCallback(
@@ -602,6 +607,7 @@ export const CalendarColumn: FC<{
   } = useCalendar();
   const modal = useModals();
   const fetch = useFetch();
+  const { changeDate: updatePostDate } = usePostActionsApi();
 
   // Use shared post actions hook
   const { editPost, deletePost, copyDebugJson, openStatistics, openMissingRelease } = usePostActions();
@@ -725,25 +731,17 @@ export const CalendarColumn: FC<{
       if (!item.interval) {
         changeDate(item.id, getDate);
       }
-      const { status } = await fetch(`/posts/${item.id}/date`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          date: getDate.utc().format('YYYY-MM-DDTHH:mm:ss'),
-          action,
-        }),
-      });
-      if (status !== 500) {
-        if (item.interval || action === 'schedule') {
-          reloadCalendarView();
-          return;
-        }
+      await updatePostDate(item.id, getDate.utc().valueOf(), action);
+      if (item.interval || action === 'schedule') {
+        reloadCalendarView();
         return;
       }
+      return;
     },
     collect: (monitor) => ({
       canDrop: isBeforeNow ? false : !!monitor.canDrop() && !!monitor.isOver(),
     }),
-  }), [posts]);
+  }), [changeDate, getDate, isBeforeNow, modal, posts, reloadCalendarView, t, updatePostDate]);
 
   const addModal = useCallback(async () => {
     const set: any = !sets.length
