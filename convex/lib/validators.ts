@@ -303,3 +303,42 @@ export const tagSummaryValidator = v.object({
 export const tagListResponseValidator = v.object({
   tags: v.array(tagSummaryValidator),
 });
+
+export const publicPreviewIntegrationValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  picture: v.string(),
+  providerIdentifier: v.string(),
+  profile: v.optional(v.string()),
+});
+
+export const publicPreviewMediaValidator = v.object({
+  id: v.optional(v.string()),
+  path: v.string(),
+  alt: v.optional(v.string()),
+  thumbnail: v.optional(v.string()),
+  thumbnailTimestamp: v.optional(v.number()),
+});
+
+export const publicPreviewPostValidator = v.object({
+  id: v.string(),
+  content: v.string(),
+  publishDate: v.string(),
+  image: v.array(publicPreviewMediaValidator),
+});
+
+export const publicPreviewResponseValidator = v.object({
+  integration: publicPreviewIntegrationValidator,
+  posts: v.array(publicPreviewPostValidator),
+});
+
+export const publicCommentValidator = v.object({
+  id: v.string(),
+  userId: v.string(),
+  content: v.string(),
+  createdAt: v.number(),
+});
+
+export const publicCommentsResponseValidator = v.object({
+  comments: v.array(publicCommentValidator),
+});

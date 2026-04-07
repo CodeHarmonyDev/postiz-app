@@ -14,6 +14,9 @@ import {
   postListResponseValidator,
   postStateValidator,
   postSummaryValidator,
+  publicCommentValidator,
+  publicCommentsResponseValidator,
+  publicPreviewResponseValidator,
   tagListResponseValidator,
   tagSummaryValidator,
 } from './lib/validators';
@@ -238,6 +241,43 @@ async function listGroupPosts(ctx: any, organizationId: any, groupId: string) {
       q.eq('organizationId', organizationId).eq('groupId', groupId)
     )
     .collect();
+}
+
+function orderGroupPosts(groupPosts: Array<any>, rootPostId?: string) {
+  const activePosts = groupPosts.filter((post: any) => !post.isDeleted);
+  const rootPost =
+    activePosts.find((post: any) =>
+      rootPostId ? String(post._id) === rootPostId : !post.parentPostId
+    ) ||
+    activePosts.find((post: any) => !post.parentPostId) ||
+    null;
+
+  if (!rootPost) {
+    return [] as Array<any>;
+  }
+
+  const orderedPosts: Array<any> = [];
+  let currentPost: any = rootPost;
+
+  while (currentPost) {
+    orderedPosts.push(currentPost);
+    const currentPostId = String(currentPost._id);
+    currentPost =
+      activePosts.find(
+        (post: any) =>
+          post.parentPostId && String(post.parentPostId) === currentPostId
+      ) || null;
+  }
+
+  return orderedPosts;
+}
+
+async function getPublicPostRecord(ctx: any, postId: string) {
+  try {
+    return (await ctx.db.get(postId as any)) as any;
+  } catch {
+    return null;
+  }
 }
 
 async function replaceRootPostTags(
@@ -528,6 +568,124 @@ export const listUpcoming = query({
       page: args.page,
       limit: args.limit,
       hasMore: start + args.limit < upcomingPosts.length,
+    };
+  },
+});
+
+export const getPublicPreview = query({
+  args: {
+    postId: v.string(),
+  },
+  returns: v.union(v.null(), publicPreviewResponseValidator),
+  handler: async (ctx, args) => {
+    const rootPost = await getPublicPostRecord(ctx, args.postId);
+
+    if (!rootPost || rootPost.isDeleted) {
+      return null;
+    }
+
+    const integration: any = await ctx.db.get(rootPost.integrationId);
+
+    if (!integration || integration.isDeleted) {
+      return null;
+    }
+
+    const groupPosts = await listGroupPosts(
+      ctx,
+      rootPost.organizationId,
+      rootPost.groupId
+    );
+    const orderedPosts = orderGroupPosts(groupPosts, String(rootPost._id));
+
+    return {
+      integration: {
+        id: String(integration._id),
+        name: integration.name,
+        picture: integration.pictureUrl || '/no-picture.jpg',
+        providerIdentifier: integration.providerIdentifier,
+        profile: integration.profile,
+      },
+      posts: orderedPosts.map((post: any) => ({
+        id: String(post._id),
+        content: post.content,
+        publishDate: new Date(post.publishAt).toISOString(),
+        image: JSON.parse(post.imageJson || '[]'),
+      })),
+    };
+  },
+});
+
+export const listPublicComments = query({
+  args: {
+    postId: v.string(),
+  },
+  returns: publicCommentsResponseValidator,
+  handler: async (ctx, args) => {
+    const post = await getPublicPostRecord(ctx, args.postId);
+
+    if (!post || post.isDeleted) {
+      return { comments: [] };
+    }
+
+    const comments = await ctx.db
+      .query('comments')
+      .withIndex('by_post_id_and_is_deleted', (q: any) =>
+        q.eq('postId', post._id).eq('isDeleted', false)
+      )
+      .collect();
+
+    return {
+      comments: comments.map((comment: any) => ({
+        id: String(comment._id),
+        userId: String(comment.userId),
+        content: comment.content,
+        createdAt: comment._creationTime,
+      })),
+    };
+  },
+});
+
+export const createPublicComment = mutation({
+  args: {
+    postId: v.string(),
+    comment: v.string(),
+  },
+  returns: publicCommentValidator,
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const user = await requireUserByClerkId(ctx, identity.subject);
+    const post = await getPublicPostRecord(ctx, args.postId);
+    const content = args.comment.trim();
+
+    if (!post || post.isDeleted) {
+      throw new Error('Post not found');
+    }
+
+    if (!content) {
+      throw new Error('Comment is required');
+    }
+
+    const commentId = await ctx.db.insert('comments', {
+      organizationId: post.organizationId,
+      postId: post._id,
+      userId: user._id,
+      content,
+      isDeleted: false,
+      deletedAt: undefined,
+      legacyCommentId: undefined,
+    });
+
+    const comment = await ctx.db.get(commentId);
+
+    if (!comment) {
+      throw new Error('Comment not found');
+    }
+
+    return {
+      id: String(comment._id),
+      userId: String(comment.userId),
+      content: comment.content,
+      createdAt: comment._creationTime,
     };
   },
 });
