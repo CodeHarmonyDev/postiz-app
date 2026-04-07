@@ -11,7 +11,10 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { api } from '@gitroom/convex/_generated/api';
+import { useAppViewer } from '@gitroom/frontend/components/layout/use-app-viewer';
 import dayjs from 'dayjs';
+import { useConvex } from 'convex/react';
 import useSWR from 'swr';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { Post, Integration, Tags } from '@prisma/client';
@@ -135,6 +138,8 @@ export const CalendarWeekProvider: FC<{
   integrations: Integrations[];
 }> = ({ children, integrations }) => {
   const fetch = useFetch();
+  const convex = useConvex();
+  const { canUseConvex } = useAppViewer();
   const [internalData, setInternalData] = useState([] as any[]);
   const [trendings] = useState<string[]>([]);
   const searchParams = useSearchParams();
@@ -179,9 +184,26 @@ export const CalendarWeekProvider: FC<{
       endDate: newDayjs(filters.endDate).endOf('day').utc().format(),
     }).toString();
 
-    const data = await (await fetch(`/posts?${modifiedParams}`)).json();
-    return expandPosts(data);
-  }, [filters, params]);
+    try {
+      const response = await fetch(`/posts?${modifiedParams}`);
+
+      if (response.ok) {
+        return expandPosts(await response.json());
+      }
+    } catch {
+      /** empty **/
+    }
+
+    if (canUseConvex) {
+      return await convex.query(api.posts.listForCalendar, {
+        startAt: newDayjs(filters.startDate).startOf('day').utc().valueOf(),
+        endAt: newDayjs(filters.endDate).endOf('day').utc().valueOf(),
+        ...(filters.customer ? { customerId: filters.customer } : {}),
+      });
+    }
+
+    return { posts: [] };
+  }, [canUseConvex, convex, fetch, filters]);
 
   // List view data fetcher
   const listParams = useMemo(() => {
@@ -193,9 +215,32 @@ export const CalendarWeekProvider: FC<{
   }, [listPage, filters.customer]);
 
   const loadListData = useCallback(async () => {
-    const response = await fetch(`/posts/list?${listParams}`);
-    return expandPostsList(await response.json());
-  }, [listParams]);
+    try {
+      const response = await fetch(`/posts/list?${listParams}`);
+
+      if (response.ok) {
+        return expandPostsList(await response.json());
+      }
+    } catch {
+      /** empty **/
+    }
+
+    if (canUseConvex) {
+      return await convex.query(api.posts.listUpcoming, {
+        page: listPage,
+        limit: 100,
+        ...(filters.customer ? { customerId: filters.customer } : {}),
+      });
+    }
+
+    return {
+      posts: [],
+      total: 0,
+      page: listPage,
+      limit: 100,
+      hasMore: false,
+    };
+  }, [canUseConvex, convex, fetch, filters.customer, listPage, listParams]);
 
   // SWR for calendar view
   const {
@@ -282,7 +327,11 @@ export const CalendarWeekProvider: FC<{
   );
 
   const posts = useMemo(() => calendarData?.posts || [], [calendarData?.posts]);
-  const comments = useMemo(() => calendarData?.comments || [], [calendarData?.comments]);
+  const comments = useMemo(() => {
+    return Array.isArray((calendarData as any)?.comments)
+      ? (calendarData as any).comments
+      : [];
+  }, [calendarData]);
 
   // List view data
   const listPosts = useMemo(() => listData?.posts || [], [listData?.posts]);

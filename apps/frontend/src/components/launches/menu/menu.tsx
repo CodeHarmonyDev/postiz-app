@@ -31,6 +31,7 @@ import dayjs from 'dayjs';
 import { ModalWrapperComponent } from '@gitroom/frontend/components/new-launch/modal.wrapper.component';
 import copy from 'copy-to-clipboard';
 import { IntegrationListItem } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
+import { usePostSlot } from '@gitroom/frontend/components/launches/helpers/use.post.slot';
 
 export const Menu: FC<{
   canEnable: boolean;
@@ -58,6 +59,7 @@ export const Menu: FC<{
   const router = useRouter();
   const { extensionId } = useVariables();
   const { integrations, reloadCalendarView } = useCalendar();
+  const findNextSlot = usePostSlot();
   const toast = useToaster();
   const modal = useModals();
   const [show, setShow] = useState<false | { x: number; y: number }>(false);
@@ -206,9 +208,7 @@ export const Menu: FC<{
     (integration: Integrations) => async () => {
       setShow(false);
 
-      const { date } = await (
-        await fetch(`/posts/find-slot/${integration.id}`)
-      ).json();
+      const date = await findNextSlot(integration.id);
 
       modal.openModal({
         id: 'add-edit-modal',
@@ -238,7 +238,7 @@ export const Menu: FC<{
         title: ``,
       });
     },
-    [integrations]
+    [findNextSlot, integrations, modal, reloadCalendarView]
   );
 
   const changeBotPicture = useCallback(() => {

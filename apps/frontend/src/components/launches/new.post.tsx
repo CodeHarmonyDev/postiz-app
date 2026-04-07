@@ -2,20 +2,20 @@ import React, { useCallback } from 'react';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import dayjs from 'dayjs';
 import { useCalendar } from '@gitroom/frontend/components/launches/calendar.context';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { SetSelectionModal } from '@gitroom/frontend/components/launches/calendar';
 import { AddEditModal } from '@gitroom/frontend/components/new-launch/add.edit.modal';
 import { ModalWrapperComponent } from '@gitroom/frontend/components/new-launch/modal.wrapper.component';
+import { usePostSlot } from '@gitroom/frontend/components/launches/helpers/use.post.slot';
 
 export const NewPost = () => {
-  const fetch = useFetch();
   const modal = useModals();
   const { integrations, reloadCalendarView, sets } = useCalendar();
   const t = useT();
+  const findNextSlot = usePostSlot();
 
   const createAPost = useCallback(async () => {
-    const date = (await (await fetch('/posts/find-slot')).json()).date;
+    const date = await findNextSlot();
 
     const set: any = !sets.length
       ? undefined
@@ -73,7 +73,7 @@ export const NewPost = () => {
       size: '80%',
       title: ``,
     });
-  }, [integrations, sets]);
+  }, [findNextSlot, integrations, modal, reloadCalendarView, sets, t]);
   return (
     <button
       onClick={createAPost}

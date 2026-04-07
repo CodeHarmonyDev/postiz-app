@@ -57,6 +57,7 @@ import copy from 'copy-to-clipboard';
 import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
 import { Button } from '@gitroom/react/form/button';
+import { usePostSlot } from '@gitroom/frontend/components/launches/helpers/use.post.slot';
 
 // Extend dayjs with necessary plugins
 extend(isSameOrAfter);
@@ -99,6 +100,7 @@ const usePostActions = (onMutate?: () => void) => {
   const modal = useModals();
   const toaster = useToaster();
   const { integrations, reloadCalendarView } = useCalendar();
+  const findNextSlot = usePostSlot();
 
   const mutate = useCallback(() => {
     reloadCalendarView();
@@ -115,7 +117,7 @@ const usePostActions = (onMutate?: () => void) => {
       const data = await (await fetch(`/posts/group/${post.group}`)).json();
       const date = !isDuplicate
         ? null
-        : (await (await fetch('/posts/find-slot')).json()).date;
+        : await findNextSlot();
       const publishDate = dayjs
         .utc(date || data.posts[0].publishDate)
         .local();
@@ -169,7 +171,7 @@ const usePostActions = (onMutate?: () => void) => {
         title: ``,
       });
     },
-    [integrations, fetch, modal, mutate]
+    [fetch, findNextSlot, integrations, modal, mutate]
   );
 
   const copyDebugJson = useCallback(

@@ -149,6 +149,49 @@ export const integrationDashboardItemValidator = v.object({
   ),
 });
 
+export const postCalendarIntegrationValidator = v.object({
+  id: v.string(),
+  providerIdentifier: v.string(),
+  name: v.string(),
+  picture: v.string(),
+});
+
+export const postCalendarTagInnerValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  color: v.string(),
+});
+
+export const postCalendarTagValidator = v.object({
+  tag: postCalendarTagInnerValidator,
+});
+
+export const postCalendarItemValidator = v.object({
+  id: v.string(),
+  content: v.string(),
+  publishDate: v.string(),
+  releaseURL: v.optional(v.string()),
+  releaseId: v.optional(v.string()),
+  state: postStateValidator,
+  group: v.string(),
+  tags: v.array(postCalendarTagValidator),
+  integration: postCalendarIntegrationValidator,
+  intervalInDays: v.optional(v.number()),
+  actualDate: v.optional(v.string()),
+});
+
+export const postCalendarResponseValidator = v.object({
+  posts: v.array(postCalendarItemValidator),
+});
+
+export const postListResponseValidator = v.object({
+  posts: v.array(postCalendarItemValidator),
+  total: v.number(),
+  page: v.number(),
+  limit: v.number(),
+  hasMore: v.boolean(),
+});
+
 export const postSummaryValidator = v.object({
   _id: v.id('posts'),
   organizationId: v.id('organizations'),
