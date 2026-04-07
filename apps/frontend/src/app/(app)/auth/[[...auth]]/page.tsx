@@ -1,18 +1,20 @@
 export const dynamic = 'force-dynamic';
-import { Metadata } from 'next';
-import { Activate } from '@gitroom/frontend/components/auth/activate';
+import { Register } from '@gitroom/frontend/components/auth/register';
 import { ClerkConfigRequired } from '@gitroom/frontend/components/auth/clerk-config-required';
+import { Metadata } from 'next';
 import { isGeneralServerSide } from '@gitroom/helpers/utils/is.general.server.side';
+
 export const metadata: Metadata = {
-  title: `${
-    isGeneralServerSide() ? 'Postiz' : 'Gitroom'
-  } - Activate your account`,
+  title: `${isGeneralServerSide() ? 'Postiz' : 'Gitroom'} Register`,
   description: '',
 };
+
 export default async function Auth() {
   if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
-    return <ClerkConfigRequired mode="activate" />;
+    return <ClerkConfigRequired mode="sign-up" />;
   }
 
-  return <Activate />;
+  return (
+    <Register registrationDisabled={process.env.DISABLE_REGISTRATION === 'true'} />
+  );
 }

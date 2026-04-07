@@ -40,6 +40,7 @@ import { PreConditionComponent } from '@gitroom/frontend/components/layout/pre-c
 import { AttachToFeedbackIcon } from '@gitroom/frontend/components/new-layout/sentry.feedback.component';
 import { FirstBillingComponent } from '@gitroom/frontend/components/billing/first.billing.component';
 import { useAppViewer } from '@gitroom/frontend/components/layout/use-app-viewer';
+import { ConvexSetupRequired } from '@gitroom/frontend/components/layout/convex-setup-required';
 
 const jakartaSans = Plus_Jakarta_Sans({
   weight: ['600', '500', '700'],
@@ -52,7 +53,12 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
 
   // Feedback icon component attaches Sentry feedback to a top-bar icon when DSN is present
   const searchParams = useSearchParams();
-  const { user, refreshUser, isLoading } = useAppViewer();
+  const { user, refreshUser, isLoading, convexUnavailableReason } =
+    useAppViewer();
+
+  if (convexUnavailableReason) {
+    return <ConvexSetupRequired reason={convexUnavailableReason} />;
+  }
 
   if (isLoading || !user) return null;
 

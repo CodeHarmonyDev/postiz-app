@@ -21,6 +21,10 @@ export function usePostTagsApi() {
   const deleteTagMutation = useMutation(api.posts.deleteTag);
 
   const listTags = useCallback(async () => {
+    if (canUseConvex) {
+      return await convex.query(api.posts.listTags, {});
+    }
+
     try {
       const response = await fetch('/posts/tags');
 
@@ -31,15 +35,15 @@ export function usePostTagsApi() {
       /** empty **/
     }
 
-    if (canUseConvex) {
-      return await convex.query(api.posts.listTags, {});
-    }
-
     return { tags: [] as Array<TagSummary> };
   }, [canUseConvex, convex, fetch]);
 
   const createTag = useCallback(
     async (name: string, color: string) => {
+      if (canUseConvex) {
+        return await createTagMutation({ name, color });
+      }
+
       try {
         const response = await fetch('/posts/tags', {
           method: 'POST',
@@ -53,10 +57,6 @@ export function usePostTagsApi() {
         /** empty **/
       }
 
-      if (canUseConvex) {
-        return await createTagMutation({ name, color });
-      }
-
       throw new Error('Unable to create tag');
     },
     [canUseConvex, createTagMutation, fetch]
@@ -64,6 +64,14 @@ export function usePostTagsApi() {
 
   const updateTag = useCallback(
     async (id: string, name: string, color: string) => {
+      if (canUseConvex) {
+        return await updateTagMutation({
+          tagId: id,
+          name,
+          color,
+        });
+      }
+
       try {
         const response = await fetch(`/posts/tags/${id}`, {
           method: 'PUT',
@@ -77,14 +85,6 @@ export function usePostTagsApi() {
         /** empty **/
       }
 
-      if (canUseConvex) {
-        return await updateTagMutation({
-          tagId: id,
-          name,
-          color,
-        });
-      }
-
       throw new Error('Unable to update tag');
     },
     [canUseConvex, fetch, updateTagMutation]
@@ -92,6 +92,13 @@ export function usePostTagsApi() {
 
   const deleteTag = useCallback(
     async (id: string) => {
+      if (canUseConvex) {
+        await deleteTagMutation({
+          tagId: id,
+        });
+        return null;
+      }
+
       try {
         const response = await fetch(`/posts/tags/${id}`, {
           method: 'DELETE',
@@ -102,13 +109,6 @@ export function usePostTagsApi() {
         }
       } catch {
         /** empty **/
-      }
-
-      if (canUseConvex) {
-        await deleteTagMutation({
-          tagId: id,
-        });
-        return null;
       }
 
       throw new Error('Unable to delete tag');

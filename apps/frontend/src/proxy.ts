@@ -11,20 +11,22 @@ import {
 } from '@gitroom/react/translation/i18n.config';
 acceptLanguage.languages(languages);
 
-const clerkConfigured = Boolean(
-  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
-    process.env.NEXT_PUBLIC_CONVEX_URL
-);
+const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 async function handleProxy(
   request: NextRequest,
-  clerkSignedIn = false
+  {
+    clerkSignedIn = false,
+    useLegacyAuth = false,
+  }: { clerkSignedIn?: boolean; useLegacyAuth?: boolean } = {}
 ) {
   const nextUrl = request.nextUrl;
   const authCookie =
-    request.cookies.get('auth') ||
-    request.headers.get('auth') ||
-    nextUrl.searchParams.get('loggedAuth');
+    useLegacyAuth
+      ? request.cookies.get('auth') ||
+        request.headers.get('auth') ||
+        nextUrl.searchParams.get('loggedAuth')
+      : null;
   const isAuthenticated = Boolean(authCookie) || clerkSignedIn;
   const lng = request.cookies.has(cookieName)
     ? acceptLanguage.get(request.cookies.get(cookieName).value)
@@ -73,6 +75,30 @@ async function handleProxy(
       new URL('/auth/login', nextUrl.href)
     );
     response.cookies.set('auth', '', {
+      path: '/',
+      ...(!process.env.NOT_SECURED
+        ? {
+            secure: true,
+            httpOnly: true,
+            sameSite: false,
+          }
+        : {}),
+      maxAge: -1,
+      domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
+    });
+    response.cookies.set('showorg', '', {
+      path: '/',
+      ...(!process.env.NOT_SECURED
+        ? {
+            secure: true,
+            httpOnly: true,
+            sameSite: false,
+          }
+        : {}),
+      maxAge: -1,
+      domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
+    });
+    response.cookies.set('impersonate', '', {
       path: '/',
       ...(!process.env.NOT_SECURED
         ? {
@@ -186,11 +212,14 @@ export const config = {
   matcher: '/((?!api/|_next/|_static/|_vercel|[\\w-]+\\.\\w+).*)',
 };
 
-const defaultProxy = async (request: NextRequest) => handleProxy(request);
+const defaultProxy = async (request: NextRequest) =>
+  handleProxy(request, { useLegacyAuth: true });
 
 export default clerkConfigured
   ? clerkMiddleware(async (auth, request) => {
       const authState = await auth();
-      return handleProxy(request, Boolean(authState.userId));
+      return handleProxy(request, {
+        clerkSignedIn: Boolean(authState.userId),
+      });
     })
   : defaultProxy;

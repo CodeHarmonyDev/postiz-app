@@ -17,6 +17,15 @@ export function usePostSlot() {
 
   return useCallback(
     async (integrationId?: string) => {
+      if (canUseConvex) {
+        const result = await convex.query(
+          api.posts.findNextAvailableSlot,
+          integrationId ? { integrationId } : {}
+        );
+
+        return result.date;
+      }
+
       try {
         const response = await fetch(
           integrationId ? `/posts/find-slot/${integrationId}` : '/posts/find-slot'
@@ -31,15 +40,6 @@ export function usePostSlot() {
         }
       } catch {
         /** empty **/
-      }
-
-      if (canUseConvex) {
-        const result = await convex.query(
-          api.posts.findNextAvailableSlot,
-          integrationId ? { integrationId } : {}
-        );
-
-        return result.date;
       }
 
       return fallbackNow();

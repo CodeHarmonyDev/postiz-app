@@ -1,15 +1,11 @@
 export const dynamic = 'force-dynamic';
-import { ForgotReturn } from '@gitroom/frontend/components/auth/forgot-return';
 import { Metadata } from 'next';
 import { isGeneralServerSide } from '@gitroom/helpers/utils/is.general.server.side';
+import { redirect } from 'next/navigation';
 export const metadata: Metadata = {
   title: `${isGeneralServerSide() ? 'Postiz' : 'Gitroom'} Forgot Password`,
   description: '',
 };
-export default async function Auth(params: {
-  params: Promise<{
-    token: string;
-  }>;
-}) {
-  return <ForgotReturn token={(await params.params).token} />;
+export default async function Auth() {
+  redirect('/auth/forgot');
 }

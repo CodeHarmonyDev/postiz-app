@@ -184,6 +184,14 @@ export const CalendarWeekProvider: FC<{
       endDate: newDayjs(filters.endDate).endOf('day').utc().format(),
     }).toString();
 
+    if (canUseConvex) {
+      return await convex.query(api.posts.listForCalendar, {
+        startAt: newDayjs(filters.startDate).startOf('day').utc().valueOf(),
+        endAt: newDayjs(filters.endDate).endOf('day').utc().valueOf(),
+        ...(filters.customer ? { customerId: filters.customer } : {}),
+      });
+    }
+
     try {
       const response = await fetch(`/posts?${modifiedParams}`);
 
@@ -192,14 +200,6 @@ export const CalendarWeekProvider: FC<{
       }
     } catch {
       /** empty **/
-    }
-
-    if (canUseConvex) {
-      return await convex.query(api.posts.listForCalendar, {
-        startAt: newDayjs(filters.startDate).startOf('day').utc().valueOf(),
-        endAt: newDayjs(filters.endDate).endOf('day').utc().valueOf(),
-        ...(filters.customer ? { customerId: filters.customer } : {}),
-      });
     }
 
     return { posts: [] };
@@ -215,6 +215,14 @@ export const CalendarWeekProvider: FC<{
   }, [listPage, filters.customer]);
 
   const loadListData = useCallback(async () => {
+    if (canUseConvex) {
+      return await convex.query(api.posts.listUpcoming, {
+        page: listPage,
+        limit: 100,
+        ...(filters.customer ? { customerId: filters.customer } : {}),
+      });
+    }
+
     try {
       const response = await fetch(`/posts/list?${listParams}`);
 
@@ -223,14 +231,6 @@ export const CalendarWeekProvider: FC<{
       }
     } catch {
       /** empty **/
-    }
-
-    if (canUseConvex) {
-      return await convex.query(api.posts.listUpcoming, {
-        page: listPage,
-        limit: 100,
-        ...(filters.customer ? { customerId: filters.customer } : {}),
-      });
     }
 
     return {

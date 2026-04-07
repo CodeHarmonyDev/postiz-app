@@ -24,6 +24,7 @@ export function setCookie(cname: string, cvalue: string, exdays: number) {
 function LayoutContextInner(params: { children: ReactNode }) {
   const returnUrl = useReturnUrl();
   const { backendUrl, isGeneral, isSecured } = useVariables();
+  const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
   const afterRequest = useCallback(
     async (url: string, options: RequestInit, response: Response) => {
       if (
@@ -32,25 +33,9 @@ function LayoutContextInner(params: { children: ReactNode }) {
       ) {
         return true;
       }
-      const headerAuth =
-        response?.headers?.get('auth') || response?.headers?.get('Auth');
-      const showOrg =
-        response?.headers?.get('showorg') || response?.headers?.get('Showorg');
-      const impersonate =
-        response?.headers?.get('impersonate') ||
-        response?.headers?.get('Impersonate');
       const logout =
         response?.headers?.get('logout') || response?.headers?.get('Logout');
-      if (headerAuth) {
-        setCookie('auth', headerAuth, 365);
-      }
-      if (showOrg) {
-        setCookie('showorg', showOrg, 365);
-      }
-      if (impersonate) {
-        setCookie('impersonate', impersonate, 365);
-      }
-      if (logout && !isSecured) {
+      if (!clerkConfigured && logout && !isSecured) {
         setCookie('auth', '', -10);
         setCookie('showorg', '', -10);
         setCookie('impersonate', '', -10);
@@ -80,7 +65,11 @@ function LayoutContextInner(params: { children: ReactNode }) {
       }
 
       if (response.status === 401 || response?.headers?.get('logout')) {
-        if (!isSecured) {
+        if (clerkConfigured) {
+          return true;
+        }
+
+        if (!clerkConfigured && !isSecured) {
           setCookie('auth', '', -10);
           setCookie('showorg', '', -10);
           setCookie('impersonate', '', -10);
@@ -119,7 +108,7 @@ function LayoutContextInner(params: { children: ReactNode }) {
       }
       return true;
     },
-    []
+    [clerkConfigured, isGeneral, isSecured, returnUrl]
   );
   return (
     <FetchWrapperComponent baseUrl={backendUrl} afterRequest={afterRequest}>

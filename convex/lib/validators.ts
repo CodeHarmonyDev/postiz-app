@@ -60,8 +60,22 @@ export const userSummaryValidator = v.object({
   imageUrl: v.optional(v.string()),
   timezone: v.optional(v.string()),
   language: v.optional(v.string()),
+  bio: v.optional(v.string()),
+  audience: v.number(),
   isSuperAdmin: v.boolean(),
   defaultOrganizationId: v.optional(v.id('organizations')),
+});
+
+export const subscriptionSummaryValidator = v.object({
+  _id: v.id('subscriptions'),
+  organizationId: v.id('organizations'),
+  tier: subscriptionTierValidator,
+  period: billingPeriodValidator,
+  totalChannels: v.number(),
+  isLifetime: v.boolean(),
+  identifier: v.optional(v.string()),
+  cancelAt: v.optional(v.number()),
+  deletedAt: v.optional(v.number()),
 });
 
 export const organizationSummaryValidator = v.object({
@@ -88,6 +102,7 @@ export const viewerStateValidator = v.object({
   user: userSummaryValidator,
   organization: organizationSummaryValidator,
   membership: membershipSummaryValidator,
+  subscription: v.union(v.null(), subscriptionSummaryValidator),
 });
 
 export const organizationListItemValidator = v.object({

@@ -3,21 +3,36 @@
 import { useCallback, useMemo } from 'react';
 import { useUser as useClerkUser } from '@clerk/nextjs';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
-import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { api } from '@gitroom/convex/_generated/api';
 import type { Id } from '@gitroom/convex/_generated/dataModel';
-import { useMutation, useQuery } from 'convex/react';
-import { useConvexAuth } from 'convex/react';
-import useSWR from 'swr';
 import {
   AppUserRole,
   AppUserTier,
   RawAppUser,
 } from '@gitroom/frontend/components/layout/user.context';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
+import { pricing } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/pricing';
+import { useMutation, useQuery } from 'convex/react';
+import { useConvexAuth } from 'convex/react';
+import useSWR from 'swr';
 
 type LegacyOrganization = {
   id: string;
   name: string;
+};
+
+type ViewerSupplement = Partial<
+  Pick<
+    RawAppUser,
+    | 'bio'
+    | 'audience'
+    | 'publicApi'
+    | 'totalChannels'
+    | 'isLifetime'
+    | 'impersonate'
+  >
+> & {
+  tier?: string;
 };
 
 export type AppOrganization = {
@@ -26,6 +41,9 @@ export type AppOrganization = {
   role?: AppUserRole;
   source: 'legacy' | 'convex';
 };
+
+const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+const convexConfigured = Boolean(process.env.NEXT_PUBLIC_CONVEX_URL);
 
 function normalizeTier(
   tier: string | undefined,
@@ -48,19 +66,58 @@ function normalizeTier(
   return 'FREE';
 }
 
+function mapLegacyUser(legacyUser: any): RawAppUser | undefined {
+  if (!legacyUser?.id || !legacyUser?.orgId) {
+    return undefined;
+  }
+
+  return legacyUser as RawAppUser;
+}
+
+function mapViewerSupplement(legacyUser: any): ViewerSupplement | undefined {
+  if (!legacyUser || typeof legacyUser !== 'object') {
+    return undefined;
+  }
+
+  return {
+    bio: typeof legacyUser.bio === 'string' ? legacyUser.bio : undefined,
+    audience:
+      typeof legacyUser.audience === 'number' ? legacyUser.audience : undefined,
+    publicApi:
+      typeof legacyUser.publicApi === 'string' ? legacyUser.publicApi : undefined,
+    totalChannels:
+      typeof legacyUser.totalChannels === 'number'
+        ? legacyUser.totalChannels
+        : undefined,
+    tier: typeof legacyUser.tier === 'string' ? legacyUser.tier : undefined,
+    isLifetime:
+      typeof legacyUser.isLifetime === 'boolean'
+        ? legacyUser.isLifetime
+        : undefined,
+    impersonate:
+      typeof legacyUser.impersonate === 'boolean'
+        ? legacyUser.impersonate
+        : undefined,
+  };
+}
+
 function mapConvexViewerToRawUser(
   viewer: any,
-  legacyUser: RawAppUser | undefined,
+  supplement: ViewerSupplement | undefined,
   billingEnabled: boolean
 ): RawAppUser | undefined {
   if (!viewer) {
     return undefined;
   }
 
-  const tier = normalizeTier(legacyUser?.tier, billingEnabled);
-  const totalChannels = billingEnabled
-    ? legacyUser?.totalChannels || 0
-    : 10000;
+  const tier = normalizeTier(
+    viewer.subscription?.tier || supplement?.tier,
+    billingEnabled
+  );
+  const totalChannels =
+    viewer.subscription?.totalChannels ??
+    supplement?.totalChannels ??
+    (!billingEnabled ? 10000 : pricing[tier].channel);
 
   return {
     id: String(viewer.user._id),
@@ -77,17 +134,17 @@ function mapConvexViewerToRawUser(
     imageUrl: viewer.user.imageUrl,
     timezone: viewer.user.timezone,
     language: viewer.user.language,
-    bio: legacyUser?.bio,
-    audience: legacyUser?.audience ?? 0,
+    bio: supplement?.bio ?? viewer.user.bio,
+    audience: supplement?.audience ?? viewer.user.audience ?? 0,
     isSuperAdmin: viewer.user.isSuperAdmin,
     admin: viewer.user.isSuperAdmin,
     orgId: String(viewer.organization._id),
     tier,
-    publicApi: legacyUser?.publicApi || '',
+    publicApi: supplement?.publicApi || '',
     role: viewer.membership.role,
     totalChannels,
-    isLifetime: legacyUser?.isLifetime,
-    impersonate: legacyUser?.impersonate ?? false,
+    isLifetime: viewer.subscription?.isLifetime ?? supplement?.isLifetime,
+    impersonate: supplement?.impersonate ?? false,
     allowTrial: viewer.organization.allowTrial,
     isTrailing: billingEnabled ? viewer.organization.isTrailing : false,
     streakSince: viewer.organization.streakSince
@@ -96,22 +153,26 @@ function mapConvexViewerToRawUser(
   };
 }
 
-function mapLegacyUser(legacyUser: any): RawAppUser | undefined {
-  if (!legacyUser?.id || !legacyUser?.orgId) {
-    return undefined;
-  }
-
-  return legacyUser as RawAppUser;
-}
-
 export function useAppViewer() {
   const fetch = useFetch();
   const { billingEnabled } = useVariables();
   const { isSignedIn } = useClerkUser();
   const { isAuthenticated, isLoading } = useConvexAuth();
-  const convexViewer = useQuery(api.users.current);
-  const convexOrganizations = useQuery(api.organizations.listForCurrentUser);
+  const shouldQueryConvex =
+    clerkConfigured &&
+    convexConfigured &&
+    Boolean(isSignedIn) &&
+    Boolean(isAuthenticated);
+  const convexViewer = useQuery(
+    api.users.current,
+    shouldQueryConvex ? {} : 'skip'
+  );
+  const convexOrganizations = useQuery(
+    api.organizations.listForCurrentUser,
+    shouldQueryConvex ? {} : 'skip'
+  );
   const setDefaultOrganization = useMutation(api.users.setDefaultOrganization);
+  const syncViewer = useMutation(api.users.syncViewer);
 
   const loadLegacyUser = useCallback(async () => {
     try {
@@ -146,16 +207,24 @@ export function useAppViewer() {
     data: legacyUserData,
     mutate: mutateLegacyUser,
     isLoading: isLoadingLegacyUser,
-  } = useSWR('/user/self', loadLegacyUser, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-    revalidateIfStale: false,
-    refreshWhenOffline: false,
-    refreshWhenHidden: false,
-  });
+  } = useSWR(
+    clerkConfigured ? (isSignedIn ? '/user/self' : null) : '/user/self',
+    loadLegacyUser,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      refreshWhenOffline: false,
+      refreshWhenHidden: false,
+    }
+  );
 
   const legacyUser = useMemo(
     () => mapLegacyUser(legacyUserData),
+    [legacyUserData]
+  );
+  const viewerSupplement = useMemo(
+    () => mapViewerSupplement(legacyUserData),
     [legacyUserData]
   );
 
@@ -164,7 +233,7 @@ export function useAppViewer() {
     mutate: mutateLegacyOrganizations,
     isLoading: isLoadingLegacyOrganizations,
   } = useSWR(
-    legacyUser ? '/user/organizations' : null,
+    clerkConfigured ? null : legacyUser ? '/user/organizations' : null,
     loadLegacyOrganizations,
     {
       revalidateOnFocus: false,
@@ -176,22 +245,18 @@ export function useAppViewer() {
   );
 
   const convexUser = useMemo(
-    () => mapConvexViewerToRawUser(convexViewer, legacyUser, billingEnabled),
-    [billingEnabled, convexViewer, legacyUser]
+    () => mapConvexViewerToRawUser(convexViewer, viewerSupplement, billingEnabled),
+    [billingEnabled, convexViewer, viewerSupplement]
   );
 
-  const user = legacyUser || convexUser;
+  const user = clerkConfigured ? convexUser : legacyUser;
 
   const organizations = useMemo(() => {
-    if (legacyUser && Array.isArray(legacyOrganizationsData)) {
-      return legacyOrganizationsData.map((organization: LegacyOrganization) => ({
-        id: organization.id,
-        name: organization.name,
-        source: 'legacy' as const,
-      }));
-    }
+    if (clerkConfigured && convexConfigured) {
+      if (!convexOrganizations) {
+        return [] as Array<AppOrganization>;
+      }
 
-    if (convexOrganizations) {
       return convexOrganizations.map((item) => ({
         id: String(item.organization._id),
         name: item.organization.name,
@@ -200,33 +265,68 @@ export function useAppViewer() {
       }));
     }
 
+    if (legacyUser && Array.isArray(legacyOrganizationsData)) {
+      return legacyOrganizationsData.map((organization: LegacyOrganization) => ({
+        id: organization.id,
+        name: organization.name,
+        source: 'legacy' as const,
+      }));
+    }
+
     return [] as Array<AppOrganization>;
   }, [convexOrganizations, legacyOrganizationsData, legacyUser]);
 
   const canUseConvex =
-    Boolean(isSignedIn) && !isLoading && !legacyUser && Boolean(convexUser);
+    clerkConfigured &&
+    convexConfigured &&
+    Boolean(isSignedIn) &&
+    !isLoading &&
+    Boolean(isAuthenticated) &&
+    Boolean(convexUser);
+
+  const convexUnavailableReason = useMemo(() => {
+    if (!clerkConfigured || !convexConfigured || !isSignedIn) {
+      return null;
+    }
+
+    if (!isLoading && !isAuthenticated) {
+      return 'auth_not_ready' as const;
+    }
+
+    if (!isLoading && isAuthenticated && convexViewer === null) {
+      return 'viewer_not_synced' as const;
+    }
+
+    return null;
+  }, [convexViewer, isAuthenticated, isLoading, isSignedIn]);
 
   const changeOrganization = useCallback(
     async (organization: AppOrganization) => {
-      if (organization.source === 'convex' && canUseConvex) {
+      if (clerkConfigured) {
+        if (!convexConfigured) {
+          return;
+        }
+
         await setDefaultOrganization({
           organizationId: organization.id as Id<'organizations'>,
         });
-      } else {
-        await fetch('/user/change-org', {
-          method: 'POST',
-          body: JSON.stringify({ id: organization.id }),
-        });
+        await syncViewer({});
+        return;
       }
+
+      await fetch('/user/change-org', {
+        method: 'POST',
+        body: JSON.stringify({ id: organization.id }),
+      });
 
       await Promise.all([mutateLegacyUser(), mutateLegacyOrganizations()]);
     },
     [
-      canUseConvex,
       fetch,
       mutateLegacyOrganizations,
       mutateLegacyUser,
       setDefaultOrganization,
+      syncViewer,
     ]
   );
 
@@ -234,16 +334,30 @@ export function useAppViewer() {
     user,
     organizations,
     canUseConvex,
+    convexUnavailableReason,
     convexUser,
     legacyUser,
-    isLoading:
-      isLoadingLegacyUser ||
-      isLoadingLegacyOrganizations ||
-      (Boolean(isSignedIn) && isLoading),
+    isLoading: clerkConfigured
+      ? Boolean(isSignedIn) &&
+        (convexConfigured &&
+          (isLoading ||
+          convexViewer === undefined ||
+          convexOrganizations === undefined ||
+          convexViewer === null))
+      : isLoadingLegacyUser || isLoadingLegacyOrganizations,
     refreshUser: async () => {
+      if (clerkConfigured && convexConfigured && isSignedIn) {
+        await syncViewer({});
+      }
+
       await mutateLegacyUser();
     },
     refreshOrganizations: async () => {
+      if (clerkConfigured && convexConfigured && isSignedIn) {
+        await syncViewer({});
+        return;
+      }
+
       await mutateLegacyOrganizations();
     },
     changeOrganization,

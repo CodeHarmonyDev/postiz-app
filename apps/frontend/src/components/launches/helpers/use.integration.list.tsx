@@ -82,7 +82,7 @@ export const useIntegrationList = (): UseIntegrationListResult => {
     isLoading: isLoadingLegacyIntegrations,
     mutate,
     error,
-  } = useSWR(LEGACY_INTEGRATIONS_LIST_KEY, load, {
+  } = useSWR(canUseConvex ? null : LEGACY_INTEGRATIONS_LIST_KEY, load, {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
     revalidateIfStale: false,
@@ -97,26 +97,26 @@ export const useIntegrationList = (): UseIntegrationListResult => {
   );
 
   const data = useMemo<Array<IntegrationListItem>>(() => {
-    if (legacyIntegrationList?.available) {
-      return legacyIntegrationList.integrations;
-    }
-
     if (canUseConvex && convexIntegrations) {
       return convexIntegrations;
+    }
+
+    if (legacyIntegrationList?.available) {
+      return legacyIntegrationList.integrations;
     }
 
     return [] as Array<IntegrationListItem>;
   }, [canUseConvex, convexIntegrations, legacyIntegrationList]);
 
   const refresh = useCallback(async () => {
+    if (canUseConvex && convexIntegrations) {
+      return convexIntegrations;
+    }
+
     const next = await mutate();
 
     if (next?.available) {
       return next.integrations;
-    }
-
-    if (canUseConvex && convexIntegrations) {
-      return convexIntegrations;
     }
 
     return [] as Array<IntegrationListItem>;
@@ -126,9 +126,9 @@ export const useIntegrationList = (): UseIntegrationListResult => {
     data,
     error,
     mutate: refresh,
-    source: legacyIntegrationList?.available ? 'legacy' : canUseConvex ? 'convex' : 'none',
+    source: canUseConvex ? 'convex' : legacyIntegrationList?.available ? 'legacy' : 'none',
     isLoading:
-      isLoadingLegacyIntegrations ||
-      (!legacyIntegrationList?.available && canUseConvex && convexIntegrations === undefined),
+      (canUseConvex && convexIntegrations === undefined) ||
+      (!canUseConvex && isLoadingLegacyIntegrations),
   };
 };

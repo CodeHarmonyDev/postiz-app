@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic';
-import { ClerkAuthPanel } from '@gitroom/frontend/components/auth/clerk-auth-panel';
+import { ClerkConfigRequired } from '@gitroom/frontend/components/auth/clerk-config-required';
 import { Forgot } from '@gitroom/frontend/components/auth/forgot';
 import { Metadata } from 'next';
 import { isGeneralServerSide } from '@gitroom/helpers/utils/is.general.server.side';
@@ -8,11 +8,8 @@ export const metadata: Metadata = {
   description: '',
 };
 export default async function Auth() {
-  if (
-    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
-    process.env.NEXT_PUBLIC_CONVEX_URL
-  ) {
-    return <ClerkAuthPanel mode="forgot" />;
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    return <ClerkConfigRequired mode="forgot" />;
   }
 
   return <Forgot />;

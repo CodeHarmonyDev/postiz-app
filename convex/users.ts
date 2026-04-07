@@ -47,6 +47,18 @@ async function getViewerStateForUser(ctx: any, user: any) {
     return null;
   }
 
+  const subscriptions = await ctx.db
+    .query('subscriptions')
+    .withIndex('by_organization_id', (q: any) =>
+      q.eq('organizationId', organization._id)
+    )
+    .collect();
+
+  const subscription =
+    subscriptions
+      .filter((entry: any) => !entry.deletedAt)
+      .sort((a: any, b: any) => b._creationTime - a._creationTime)[0] || null;
+
   return {
     user: {
       _id: user._id,
@@ -58,6 +70,8 @@ async function getViewerStateForUser(ctx: any, user: any) {
       imageUrl: user.imageUrl,
       timezone: user.timezone,
       language: user.language,
+      bio: user.bio,
+      audience: user.audience,
       isSuperAdmin: user.isSuperAdmin,
       defaultOrganizationId: user.defaultOrganizationId,
     },
@@ -79,6 +93,19 @@ async function getViewerStateForUser(ctx: any, user: any) {
       role: activeMembership.role,
       disabled: activeMembership.disabled,
     },
+    subscription: subscription
+      ? {
+          _id: subscription._id,
+          organizationId: subscription.organizationId,
+          tier: subscription.tier,
+          period: subscription.period,
+          totalChannels: subscription.totalChannels,
+          isLifetime: subscription.isLifetime,
+          identifier: subscription.identifier,
+          cancelAt: subscription.cancelAt,
+          deletedAt: subscription.deletedAt,
+        }
+      : null,
   };
 }
 

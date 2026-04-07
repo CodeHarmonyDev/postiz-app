@@ -46,6 +46,12 @@ export function usePostActionsApi() {
 
   const getGroup = useCallback(
     async (groupId: string) => {
+      if (canUseConvex) {
+        return await convex.query(api.posts.getGroup, {
+          groupId,
+        });
+      }
+
       try {
         const response = await fetch(`/posts/group/${groupId}`);
 
@@ -56,12 +62,6 @@ export function usePostActionsApi() {
         /** empty **/
       }
 
-      if (canUseConvex) {
-        return await convex.query(api.posts.getGroup, {
-          groupId,
-        });
-      }
-
       throw new Error('Unable to load post group');
     },
     [canUseConvex, convex, fetch]
@@ -69,6 +69,12 @@ export function usePostActionsApi() {
 
   const deleteGroup = useCallback(
     async (groupId: string) => {
+      if (canUseConvex) {
+        return await deleteGroupMutation({
+          groupId,
+        });
+      }
+
       try {
         const response = await fetch(`/posts/${groupId}`, {
           method: 'DELETE',
@@ -81,12 +87,6 @@ export function usePostActionsApi() {
         /** empty **/
       }
 
-      if (canUseConvex) {
-        return await deleteGroupMutation({
-          groupId,
-        });
-      }
-
       throw new Error('Unable to delete post group');
     },
     [canUseConvex, deleteGroupMutation, fetch]
@@ -94,6 +94,14 @@ export function usePostActionsApi() {
 
   const changeDate = useCallback(
     async (postId: string, publishAt: number, action: 'schedule' | 'update') => {
+      if (canUseConvex) {
+        return await changeDateMutation({
+          postId: postId as Id<'posts'>,
+          publishAt,
+          action,
+        });
+      }
+
       try {
         const response = await fetch(`/posts/${postId}/date`, {
           method: 'PUT',
@@ -110,14 +118,6 @@ export function usePostActionsApi() {
         /** empty **/
       }
 
-      if (canUseConvex) {
-        return await changeDateMutation({
-          postId: postId as Id<'posts'>,
-          publishAt,
-          action,
-        });
-      }
-
       throw new Error('Unable to update post date');
     },
     [canUseConvex, changeDateMutation, fetch]
@@ -125,6 +125,12 @@ export function usePostActionsApi() {
 
   const shouldShortlink = useCallback(
     async (messages: Array<string>) => {
+      if (canUseConvex) {
+        return await convex.query(api.posts.shouldShortlink, {
+          messages,
+        });
+      }
+
       try {
         const response = await fetch('/posts/should-shortlink', {
           method: 'POST',
@@ -140,12 +146,6 @@ export function usePostActionsApi() {
         /** empty **/
       }
 
-      if (canUseConvex) {
-        return await convex.query(api.posts.shouldShortlink, {
-          messages,
-        });
-      }
-
       return { ask: false };
     },
     [canUseConvex, convex, fetch]
@@ -153,19 +153,6 @@ export function usePostActionsApi() {
 
   const saveComposerPosts = useCallback(
     async (payload: ComposerPayload) => {
-      try {
-        const response = await fetch('/posts', {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        });
-
-        if (response.ok) {
-          return await response.json();
-        }
-      } catch {
-        /** empty **/
-      }
-
       if (canUseConvex) {
         return await upsertComposerPostsMutation({
           payload: {
@@ -178,6 +165,19 @@ export function usePostActionsApi() {
             })),
           },
         });
+      }
+
+      try {
+        const response = await fetch('/posts', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+
+        if (response.ok) {
+          return await response.json();
+        }
+      } catch {
+        /** empty **/
       }
 
       throw new Error('Unable to save posts');

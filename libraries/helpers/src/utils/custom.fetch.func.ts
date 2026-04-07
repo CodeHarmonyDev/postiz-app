@@ -14,13 +14,10 @@ export const customFetch = (
   secured: boolean = true
 ) => {
   return async function newFetch(url: string, options: RequestInit = {}) {
-    const loggedAuth =
-      typeof window === 'undefined'
-        ? undefined
-        : new URL(window.location.href).searchParams.get('loggedAuth');
+    const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
     const newRequestObject = await params?.beforeRequest?.(url, options);
     const authNonSecuredCookie =
-      typeof document === 'undefined'
+      clerkConfigured || typeof document === 'undefined'
         ? null
         : document.cookie
             .split(';')
@@ -28,7 +25,7 @@ export const customFetch = (
             ?.split('=')[1];
 
     const authNonSecuredOrg =
-      typeof document === 'undefined'
+      clerkConfigured || typeof document === 'undefined'
         ? null
         : document.cookie
             .split(';')
@@ -36,7 +33,7 @@ export const customFetch = (
             ?.split('=')[1];
 
     const authNonSecuredImpersonate =
-      typeof document === 'undefined'
+      clerkConfigured || typeof document === 'undefined'
         ? null
         : document.cookie
             .split(';')
@@ -56,7 +53,6 @@ export const customFetch = (
           ? {}
           : { 'Content-Type': 'application/json' }),
         Accept: 'application/json',
-        ...(loggedAuth ? { auth: loggedAuth } : {}),
         ...options?.headers,
         ...(auth
           ? { auth }
