@@ -1,12 +1,10 @@
 'use client';
 
-import useSWR from 'swr';
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { capitalize, orderBy } from 'lodash';
 import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import SafeImage from '@gitroom/react/helpers/safe.image';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { RenderAnalytics } from '@gitroom/frontend/components/platform-analytics/render.analytics';
 import { Select } from '@gitroom/react/form/select';
 import { Button } from '@gitroom/react/form/button';
@@ -17,6 +15,7 @@ import { useVariables } from '@gitroom/react/helpers/variable.context';
 import useCookie from 'react-use-cookie';
 import { SVGLine } from '@gitroom/frontend/components/launches/launches.component';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
+import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 const allowedIntegrations = [
   'facebook',
   'instagram',
@@ -30,7 +29,6 @@ const allowedIntegrations = [
   'x',
 ];
 export const PlatformAnalytics = () => {
-  const fetch = useFetch();
   const t = useT();
   const router = useRouter();
   const { disableXAnalytics } = useVariables();
@@ -40,26 +38,20 @@ export const PlatformAnalytics = () => {
   const [refresh, setRefresh] = useState(false);
   const [collapseMenu, setCollapseMenu] = useCookie('collapseMenu', '0');
   const toaster = useToaster();
-  const load = useCallback(async () => {
-    const int = (
-      await (await fetch('/integrations/list')).json()
-    ).integrations.filter((f: any) => {
-      if (f.identifier === 'x' && disableXAnalytics) {
-        return false;
-      }
-      return true;
-    });
-    return int.filter((f: any) => allowedIntegrations.includes(f.identifier));
-  }, []);
-  const { data, isLoading } = useSWR('analytics-list', load, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-    revalidateIfStale: false,
-    revalidateOnMount: true,
-    refreshWhenHidden: false,
-    refreshWhenOffline: false,
-    fallbackData: [],
-  });
+  const { data: allIntegrations, isLoading } = useIntegrationList();
+  const data = useMemo(() => {
+    return allIntegrations
+      .filter((integration) => {
+        if (integration.identifier === 'x' && disableXAnalytics) {
+          return false;
+        }
+
+        return true;
+      })
+      .filter((integration) =>
+        allowedIntegrations.includes(integration.identifier)
+      );
+  }, [allIntegrations, disableXAnalytics]);
   const sortedIntegrations = useMemo(() => {
     return orderBy(
       data,

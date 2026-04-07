@@ -23,6 +23,7 @@ import {
 import { HtmlComponent } from '@gitroom/frontend/components/layout/html.component';
 import Script from 'next/script';
 import { ChangeDirClient } from '@gitroom/frontend/components/new-layout/change.dir.client';
+import { AppAuthProviders } from '@gitroom/frontend/components/providers/app-auth-providers';
 
 const jakartaSans = Plus_Jakarta_Sans({
   weight: ['600', '500'],
@@ -91,25 +92,27 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               : []
           }
         >
-          <SentryComponent>
-            {/*<SetTimezone />*/}
-            <HtmlComponent />
-            <DubAnalytics />
-            <FacebookComponent />
-            <Plausible
-              domain={!!process.env.IS_GENERAL ? 'postiz.com' : 'gitroom.com'}
-            >
-              <PHProvider
-                phkey={process.env.NEXT_PUBLIC_POSTHOG_KEY}
-                host={process.env.NEXT_PUBLIC_POSTHOG_HOST}
+          <AppAuthProviders>
+            <SentryComponent>
+              {/*<SetTimezone />*/}
+              <HtmlComponent />
+              <DubAnalytics />
+              <FacebookComponent />
+              <Plausible
+                domain={!!process.env.IS_GENERAL ? 'postiz.com' : 'gitroom.com'}
               >
-                <LayoutContext>
-                  <UtmSaver />
-                  {children}
-                </LayoutContext>
-              </PHProvider>
-            </Plausible>
-          </SentryComponent>
+                <PHProvider
+                  phkey={process.env.NEXT_PUBLIC_POSTHOG_KEY}
+                  host={process.env.NEXT_PUBLIC_POSTHOG_HOST}
+                >
+                  <LayoutContext>
+                    <UtmSaver />
+                    {children}
+                  </LayoutContext>
+                </PHProvider>
+              </Plausible>
+            </SentryComponent>
+          </AppAuthProviders>
         </VariableContextComponent>
       </body>
     </html>

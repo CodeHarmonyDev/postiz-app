@@ -1,0 +1,169 @@
+import { v } from 'convex/values';
+
+export const roleValidator = v.union(
+  v.literal('SUPERADMIN'),
+  v.literal('ADMIN'),
+  v.literal('USER')
+);
+
+export const subscriptionTierValidator = v.union(
+  v.literal('FREE'),
+  v.literal('STANDARD'),
+  v.literal('PRO'),
+  v.literal('TEAM'),
+  v.literal('ULTIMATE')
+);
+
+export const billingPeriodValidator = v.union(
+  v.literal('MONTHLY'),
+  v.literal('YEARLY'),
+  v.literal('LIFETIME')
+);
+
+export const shortLinkPreferenceValidator = v.union(
+  v.literal('ASK'),
+  v.literal('YES'),
+  v.literal('NO')
+);
+
+export const announcementColorValidator = v.union(
+  v.literal('INFO'),
+  v.literal('WARNING'),
+  v.literal('ERROR')
+);
+
+export const postStateValidator = v.union(
+  v.literal('QUEUE'),
+  v.literal('PUBLISHED'),
+  v.literal('ERROR'),
+  v.literal('DRAFT')
+);
+
+export const approvalStateValidator = v.union(
+  v.literal('NO'),
+  v.literal('WAITING_CONFIRMATION'),
+  v.literal('YES')
+);
+
+export const integrationTypeValidator = v.union(
+  v.literal('social'),
+  v.literal('article')
+);
+
+export const userSummaryValidator = v.object({
+  _id: v.id('users'),
+  clerkUserId: v.string(),
+  email: v.optional(v.string()),
+  firstName: v.optional(v.string()),
+  lastName: v.optional(v.string()),
+  fullName: v.optional(v.string()),
+  imageUrl: v.optional(v.string()),
+  timezone: v.optional(v.string()),
+  language: v.optional(v.string()),
+  isSuperAdmin: v.boolean(),
+  defaultOrganizationId: v.optional(v.id('organizations')),
+});
+
+export const organizationSummaryValidator = v.object({
+  _id: v.id('organizations'),
+  name: v.string(),
+  slug: v.optional(v.string()),
+  description: v.optional(v.string()),
+  ownerUserId: v.id('users'),
+  shortlinkPreference: shortLinkPreferenceValidator,
+  allowTrial: v.boolean(),
+  isTrailing: v.boolean(),
+  streakSince: v.optional(v.number()),
+});
+
+export const membershipSummaryValidator = v.object({
+  _id: v.id('organizationMemberships'),
+  organizationId: v.id('organizations'),
+  userId: v.id('users'),
+  role: roleValidator,
+  disabled: v.boolean(),
+});
+
+export const viewerStateValidator = v.object({
+  user: userSummaryValidator,
+  organization: organizationSummaryValidator,
+  membership: membershipSummaryValidator,
+});
+
+export const organizationListItemValidator = v.object({
+  organization: organizationSummaryValidator,
+  membership: membershipSummaryValidator,
+  isDefault: v.boolean(),
+});
+
+export const integrationSummaryValidator = v.object({
+  _id: v.id('integrations'),
+  organizationId: v.id('organizations'),
+  customerId: v.optional(v.id('customers')),
+  providerIdentifier: v.string(),
+  type: integrationTypeValidator,
+  internalId: v.string(),
+  rootInternalId: v.optional(v.string()),
+  name: v.string(),
+  pictureUrl: v.optional(v.string()),
+  profile: v.optional(v.string()),
+  disabled: v.boolean(),
+  refreshNeeded: v.boolean(),
+  inBetweenSteps: v.boolean(),
+  postingTimes: v.array(v.number()),
+  additionalSettingsJson: v.optional(v.string()),
+  customInstanceDetails: v.optional(v.string()),
+});
+
+export const integrationDashboardItemValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  internalId: v.string(),
+  disabled: v.boolean(),
+  editor: v.union(
+    v.literal('none'),
+    v.literal('normal'),
+    v.literal('markdown'),
+    v.literal('html')
+  ),
+  picture: v.string(),
+  identifier: v.string(),
+  inBetweenSteps: v.boolean(),
+  refreshNeeded: v.boolean(),
+  isCustomFields: v.boolean(),
+  display: v.string(),
+  type: integrationTypeValidator,
+  time: v.array(
+    v.object({
+      time: v.number(),
+    })
+  ),
+  changeProfilePicture: v.boolean(),
+  changeNickName: v.boolean(),
+  additionalSettings: v.string(),
+  customer: v.optional(
+    v.object({
+      id: v.string(),
+      name: v.string(),
+    })
+  ),
+});
+
+export const postSummaryValidator = v.object({
+  _id: v.id('posts'),
+  organizationId: v.id('organizations'),
+  integrationId: v.id('integrations'),
+  authorUserId: v.optional(v.id('users')),
+  state: postStateValidator,
+  publishAt: v.number(),
+  content: v.string(),
+  groupId: v.string(),
+  title: v.optional(v.string()),
+  description: v.optional(v.string()),
+  releaseId: v.optional(v.string()),
+  releaseUrl: v.optional(v.string()),
+  settingsJson: v.optional(v.string()),
+  imageJson: v.optional(v.string()),
+  repeatIntervalDays: v.optional(v.number()),
+  errorMessage: v.optional(v.string()),
+});

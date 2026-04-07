@@ -9,6 +9,7 @@ import SafeImage from '@gitroom/react/helpers/safe.image';
 import { AddProviderComponent } from '@gitroom/frontend/components/launches/add.provider.component';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
+import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 
 interface OnboardingModalProps {
   onClose: () => void;
@@ -118,22 +119,8 @@ const OnboardingStep1: FC<{ onNext: () => void; onSkip: () => void }> = ({
 
   const getIntegrations = useCallback(async () => {
     return (await fetch('/integrations')).json();
-  }, []);
-
-  const load = useCallback(async (path: string) => {
-    const list = (await (await fetch(path)).json()).integrations;
-    return list;
-  }, []);
-
-  const { data: integrations } = useSWR('/integrations/list', load, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-    revalidateIfStale: false,
-    revalidateOnMount: true,
-    refreshWhenHidden: false,
-    refreshWhenOffline: false,
-    fallbackData: [],
-  });
+  }, [fetch]);
+  const { data: integrations } = useIntegrationList();
 
   const sortedIntegrations = useMemo(() => {
     return orderBy(

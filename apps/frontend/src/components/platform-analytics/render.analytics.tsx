@@ -1,10 +1,10 @@
 import { FC, useCallback, useMemo, useState } from 'react';
-import { Integration } from '@prisma/client';
 import useSWR from 'swr';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { ChartSocial } from '@gitroom/frontend/components/analytics/chart-social';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { IntegrationListItem } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 
 interface AnalyticsDataItem {
   label: string;
@@ -168,7 +168,7 @@ const EmptyState: FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
 };
 
 export const RenderAnalytics: FC<{
-  integration: Integration;
+  integration: IntegrationListItem;
   date: number;
 }> = (props) => {
   const { integration, date } = props;
@@ -195,11 +195,7 @@ export const RenderAnalytics: FC<{
   });
 
   const refreshChannel = useCallback(
-    (
-        integrationData: Integration & {
-          identifier: string;
-        }
-      ) =>
+    (integrationData: IntegrationListItem) =>
       async () => {
         const { url } = await (
           await fetch(
@@ -211,7 +207,7 @@ export const RenderAnalytics: FC<{
         ).json();
         window.location.href = url;
       },
-    []
+    [fetch]
   );
 
   const t = useT();

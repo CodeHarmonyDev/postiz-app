@@ -23,6 +23,7 @@
     "**/*.tsx",
     "**/*.js",
     "**/*.jsx",
+    "../../convex/**/*.ts",
     "../../apps/frontend/.next/types/**/*.ts",
     "../../dist/apps/frontend/.next/types/**/*.ts",
     "next-env.d.ts",

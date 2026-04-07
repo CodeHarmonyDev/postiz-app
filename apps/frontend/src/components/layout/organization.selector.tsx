@@ -1,44 +1,44 @@
 'use client';
 
-import React, { FC, useCallback, useMemo } from 'react';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
-import useSWR from 'swr';
+import React, { FC, useCallback, useState } from 'react';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import clsx from 'clsx';
+import {
+  AppOrganization,
+  useAppViewer,
+} from '@gitroom/frontend/components/layout/use-app-viewer';
 export const OrganizationSelector: FC<{ asOpenSelect?: boolean }> = ({
   asOpenSelect,
 }) => {
-  const fetch = useFetch();
   const user = useUser();
-  const load = useCallback(async () => {
-    return await (await fetch('/user/organizations')).json();
-  }, []);
-  const { isLoading, data } = useSWR('organizations', load, {
-    revalidateIfStale: false,
-    revalidateOnFocus: false,
-    refreshWhenOffline: false,
-    refreshWhenHidden: false,
-    revalidateOnReconnect: false,
-  });
-  const current = useMemo(() => {
-    return data?.find((d: any) => d.id === user?.orgId);
-  }, [data]);
-  const withoutCurrent = useMemo(() => {
-    return data?.filter((d: any) => d.id !== user?.orgId);
-  }, [current, data]);
+  const [isChangingOrganization, setIsChangingOrganization] = useState(false);
+  const {
+    organizations,
+    changeOrganization,
+    isLoading,
+  } = useAppViewer();
   const changeOrg = useCallback(
-    (org: { name: string; id: string }) => async () => {
-      await fetch('/user/change-org', {
-        method: 'POST',
-        body: JSON.stringify({
-          id: org.id,
-        }),
-      });
-      window.location.reload();
+    (org: AppOrganization) => async () => {
+      if (isChangingOrganization) {
+        return;
+      }
+
+      try {
+        setIsChangingOrganization(true);
+        await changeOrganization(org);
+        window.location.reload();
+      } finally {
+        setIsChangingOrganization(false);
+      }
     },
-    []
+    [changeOrganization, isChangingOrganization]
   );
-  if (isLoading || (!isLoading && data?.length === 1)) {
+
+  if (
+    isLoading ||
+    isChangingOrganization ||
+    (!isLoading && organizations?.length === 1)
+  ) {
     return null;
   }
   return (
@@ -65,14 +65,14 @@ export const OrganizationSelector: FC<{ asOpenSelect?: boolean }> = ({
               </svg>
             </div>
           )}
-          {data?.length > 1 && (
+          {organizations?.length > 1 && (
             <div
               className={clsx(
                 'hidden py-[12px] px-[12px] group-hover:flex absolute top-[100%] end-0 bg-third border-tableBorder border gap-[12px] cursor-pointer flex-col',
                 asOpenSelect ? '!flex !relative max-w-[500px] mx-auto mb-[10px]' : '',
               )}
             >
-              {data?.map((org: { name: string; id: string }) => (
+              {organizations?.map((org) => (
                 <div key={org.id} onClick={changeOrg(org)}>
                   {org.name}
                 </div>

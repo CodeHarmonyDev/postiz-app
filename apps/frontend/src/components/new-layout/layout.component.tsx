@@ -1,6 +1,6 @@
 'use client';
 
-import React, { ReactNode, useCallback } from 'react';
+import React, { ReactNode } from 'react';
 import { Logo } from '@gitroom/frontend/components/new-layout/logo';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 const ModeComponent = dynamic(
@@ -12,10 +12,8 @@ const ModeComponent = dynamic(
 
 import clsx from 'clsx';
 import dynamic from 'next/dynamic';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { useSearchParams } from 'next/navigation';
-import useSWR from 'swr';
 import { CheckPayment } from '@gitroom/frontend/components/layout/check.payment';
 import { ToolTip } from '@gitroom/frontend/components/layout/top.tip';
 import { ShowMediaBoxModal } from '@gitroom/frontend/components/media/media.component';
@@ -41,6 +39,7 @@ import { StreakComponent } from '@gitroom/frontend/components/layout/streak.comp
 import { PreConditionComponent } from '@gitroom/frontend/components/layout/pre-condition.component';
 import { AttachToFeedbackIcon } from '@gitroom/frontend/components/new-layout/sentry.feedback.component';
 import { FirstBillingComponent } from '@gitroom/frontend/components/billing/first.billing.component';
+import { useAppViewer } from '@gitroom/frontend/components/layout/use-app-viewer';
 
 const jakartaSans = Plus_Jakarta_Sans({
   weight: ['600', '500', '700'],
@@ -49,24 +48,13 @@ const jakartaSans = Plus_Jakarta_Sans({
 });
 
 export const LayoutComponent = ({ children }: { children: ReactNode }) => {
-  const fetch = useFetch();
-
   const { backendUrl, billingEnabled, isGeneral } = useVariables();
 
   // Feedback icon component attaches Sentry feedback to a top-bar icon when DSN is present
   const searchParams = useSearchParams();
-  const load = useCallback(async (path: string) => {
-    return await (await fetch(path)).json();
-  }, []);
-  const { data: user, mutate } = useSWR('/user/self', load, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-    revalidateIfStale: false,
-    refreshWhenOffline: false,
-    refreshWhenHidden: false,
-  });
+  const { user, refreshUser, isLoading } = useAppViewer();
 
-  if (!user) return null;
+  if (isLoading || !user) return null;
 
   return (
     <ContextWrapper user={user}>
@@ -78,7 +66,10 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
         <MantineWrapper>
           <ToolTip />
           <Toaster />
-          <CheckPayment check={searchParams.get('check') || ''} mutate={mutate}>
+          <CheckPayment
+            check={searchParams.get('check') || ''}
+            mutate={refreshUser}
+          >
             <ShowMediaBoxModal />
             <ShowLinkedinCompany />
             <MediaSettingsLayout />

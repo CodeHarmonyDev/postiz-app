@@ -17,18 +17,17 @@ import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import useCookie from 'react-use-cookie';
 import { SVGLine } from '@gitroom/frontend/components/launches/launches.component';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
+import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 export const Plugs = () => {
   const fetch = useFetch();
   const router = useRouter();
   const [current, setCurrent] = useState(0);
   const [refresh, setRefresh] = useState(false);
   const toaster = useToaster();
-  const load = useCallback(async () => {
-    return (await (await fetch('/integrations/list')).json()).integrations;
-  }, []);
+  const { data, isLoading } = useIntegrationList();
   const load2 = useCallback(async (path: string) => {
     return await (await fetch(path)).json();
-  }, []);
+  }, [fetch]);
   const { data: plugList, isLoading: plugLoading } = useSWR(
     '/integrations/plug/list',
     load2,
@@ -42,16 +41,6 @@ export const Plugs = () => {
       refreshWhenOffline: false,
     }
   );
-  const { data, isLoading } = useSWR('analytics-list', load, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-    revalidateIfStale: false,
-    revalidateOnMount: true,
-    refreshWhenHidden: false,
-    refreshWhenOffline: false,
-    fallbackData: [],
-  });
-
   const [collapseMenu, setCollapseMenu] = useCookie('collapseMenu', '0');
 
   const t = useT();

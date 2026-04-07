@@ -12,7 +12,6 @@ import clsx from 'clsx';
 import { useUser } from '../layout/user.context';
 import { Menu } from '@gitroom/frontend/components/launches/menu/menu';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Integration } from '@prisma/client';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useFireEvents } from '@gitroom/helpers/utils/use.fire.events';
@@ -23,7 +22,10 @@ import { GeneratorComponent } from './generator/generator';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { NewPost } from '@gitroom/frontend/components/launches/new.post';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
-import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
+import {
+  IntegrationListItem,
+  useIntegrationList,
+} from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 import useCookie from 'react-use-cookie';
 import { Onboarding } from '@gitroom/frontend/components/onboarding/onboarding';
 
@@ -73,13 +75,9 @@ export const SVGLine = () => {
   );
 };
 interface MenuComponentInterface {
-  refreshChannel: (
-    integration: Integration & {
-      identifier: string;
-    }
-  ) => () => void;
+  refreshChannel: (integration: IntegrationListItem) => () => void;
   collapsed: boolean;
-  continueIntegration: (integration: Integration) => () => void;
+  continueIntegration: (integration: IntegrationListItem) => () => void;
   totalNonDisabledChannels: number;
   mutate: (shouldReload?: boolean) => void;
   update: (shouldReload: boolean) => void;
@@ -113,13 +111,7 @@ export const MenuGroupComponent: FC<
     group: {
       id: string;
       name: string;
-      values: Array<
-        Integration & {
-          identifier: string;
-          changeProfilePicture: boolean;
-          changeNickName: boolean;
-        }
-      >;
+      values: Array<IntegrationListItem>;
     };
   }
 > = (props) => {
@@ -216,12 +208,7 @@ export const MenuGroupComponent: FC<
 };
 export const MenuComponent: FC<
   MenuComponentInterface & {
-    integration: Integration & {
-      identifier: string;
-      changeProfilePicture: boolean;
-      changeNickName: boolean;
-      refreshNeeded?: boolean;
-    };
+    integration: IntegrationListItem;
   }
 > = (props) => {
   const {
@@ -364,27 +351,10 @@ export const LaunchesComponent = () => {
   const { isLoading, data: integrations, mutate } = useIntegrationList();
 
   const totalNonDisabledChannels = useMemo(() => {
-    return (
-      integrations?.filter((integration: any) => !integration.disabled)
-        ?.length || 0
-    );
+    return integrations.filter((integration) => !integration.disabled).length || 0;
   }, [integrations]);
   const changeItemGroup = useCallback(
     async (id: string, group: string) => {
-      mutate(
-        integrations.map((integration: any) => {
-          if (integration.id === id) {
-            return {
-              ...integration,
-              customer: {
-                id: group,
-              },
-            };
-          }
-          return integration;
-        }),
-        false
-      );
       await fetch(`/integrations/${id}/group`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -393,14 +363,14 @@ export const LaunchesComponent = () => {
       });
       mutate();
     },
-    [integrations]
+    [fetch, mutate]
   );
   const sortedIntegrations = useMemo(() => {
     return orderBy(
       integrations,
       ['type', 'disabled', 'identifier'],
       ['desc', 'asc', 'asc']
-    );
+    ) as Array<IntegrationListItem>;
   }, [integrations]);
   const menuIntegrations = useMemo(() => {
     return orderBy(
@@ -418,7 +388,12 @@ export const LaunchesComponent = () => {
       })),
       ['isEmpty', 'name'],
       ['desc', 'asc']
-    );
+    ) as Array<{
+      name: string;
+      id: string;
+      isEmpty: boolean;
+      values: Array<IntegrationListItem>;
+    }>;
   }, [sortedIntegrations]);
   const update = useCallback(async (shouldReload: boolean) => {
     if (shouldReload) {
@@ -438,11 +413,7 @@ export const LaunchesComponent = () => {
     []
   );
   const refreshChannel = useCallback(
-    (
-        integration: Integration & {
-          identifier: string;
-        }
-      ) =>
+    (integration: IntegrationListItem) =>
       async () => {
         const { url } = await (
           await fetch(
@@ -454,7 +425,7 @@ export const LaunchesComponent = () => {
         ).json();
         window.location.href = url;
       },
-    []
+    [fetch]
   );
   useEffect(() => {
     if (typeof window === 'undefined') {

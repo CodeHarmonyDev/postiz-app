@@ -18,10 +18,13 @@ import SafeImage from '@gitroom/react/helpers/safe.image';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useWaitForClass } from '@gitroom/helpers/utils/use.wait.for.class';
 import { MultiMediaComponent } from '@gitroom/frontend/components/media/media.component';
-import { Integration } from '@prisma/client';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import {
+  IntegrationListItem,
+  useIntegrationList,
+} from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 
 export const MediaPortal: FC<{
   media: { path: string; id: string }[];
@@ -63,28 +66,14 @@ export const MediaPortal: FC<{
 export const AgentList: FC<{ onChange: (arr: any[]) => void }> = ({
   onChange,
 }) => {
-  const fetch = useFetch();
   const t = useT();
   const [selected, setSelected] = useState([]);
-
-  const load = useCallback(async () => {
-    return (await (await fetch('/integrations/list')).json()).integrations;
-  }, []);
+  const { data, isLoading } = useIntegrationList();
 
   const [collapseMenu, setCollapseMenu] = useCookie('collapseMenu', '0');
 
-  const { data } = useSWR('integrations', load, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-    revalidateIfStale: false,
-    revalidateOnMount: true,
-    refreshWhenHidden: false,
-    refreshWhenOffline: false,
-    fallbackData: [],
-  });
-
   const setIntegration = useCallback(
-    (integration: Integration) => () => {
+    (integration: IntegrationListItem) => () => {
       if (selected.some((p) => p.id === integration.id)) {
         onChange(selected.filter((p) => p.id !== integration.id));
         setSelected(selected.filter((p) => p.id !== integration.id));
@@ -93,7 +82,7 @@ export const AgentList: FC<{ onChange: (arr: any[]) => void }> = ({
         setSelected([...selected, integration]);
       }
     },
-    [selected]
+    [onChange, selected]
   );
 
   const sortedIntegrations = useMemo(() => {
@@ -101,8 +90,12 @@ export const AgentList: FC<{ onChange: (arr: any[]) => void }> = ({
       data || [],
       ['type', 'disabled', 'identifier'],
       ['desc', 'asc', 'asc']
-    );
+    ) as Array<IntegrationListItem>;
   }, [data]);
+
+  if (isLoading) {
+    return null;
+  }
 
   return (
     <div

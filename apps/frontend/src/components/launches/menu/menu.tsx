@@ -21,7 +21,6 @@ import {
 } from '@gitroom/frontend/components/launches/calendar.context';
 import { BotPicture } from '@gitroom/frontend/components/launches/bot.picture';
 import { CustomerModal } from '@gitroom/frontend/components/launches/customer.modal';
-import { Integration } from '@prisma/client';
 import { SettingsModal } from '@gitroom/frontend/components/launches/settings.modal';
 import { CustomVariables } from '@gitroom/frontend/components/launches/add.provider.component';
 import { useRouter } from 'next/navigation';
@@ -31,17 +30,14 @@ import { AddEditModal } from '@gitroom/frontend/components/new-launch/add.edit.m
 import dayjs from 'dayjs';
 import { ModalWrapperComponent } from '@gitroom/frontend/components/new-launch/modal.wrapper.component';
 import copy from 'copy-to-clipboard';
+import { IntegrationListItem } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 
 export const Menu: FC<{
   canEnable: boolean;
   canDisable: boolean;
   canChangeProfilePicture: boolean;
   canChangeNickName: boolean;
-  refreshChannel: (
-    integration: Integration & {
-      identifier: string;
-    }
-  ) => () => void;
+  refreshChannel: (integration: IntegrationListItem) => () => void;
   id: string;
   mutate: () => void;
   onChange: (shouldReload: boolean) => void;

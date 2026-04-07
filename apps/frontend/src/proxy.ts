@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { clerkMiddleware } from '@clerk/nextjs/server';
 import { getCookieUrlFromDomain } from '@gitroom/helpers/subdomain/subdomain.management';
 import { internalFetch } from '@gitroom/helpers/utils/internal.fetch';
 import acceptLanguage from 'accept-language';
@@ -10,8 +11,12 @@ import {
 } from '@gitroom/react/translation/i18n.config';
 acceptLanguage.languages(languages);
 
-// This function can be marked `async` if using `await` inside
-export async function proxy(request: NextRequest) {
+const clerkConfigured = Boolean(
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+    process.env.NEXT_PUBLIC_CONVEX_URL
+);
+
+async function handleProxy(request: NextRequest) {
   const nextUrl = request.nextUrl;
   const authCookie =
     request.cookies.get('auth') ||
@@ -176,3 +181,9 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: '/((?!api/|_next/|_static/|_vercel|[\\w-]+\\.\\w+).*)',
 };
+
+const defaultProxy = async (request: NextRequest) => handleProxy(request);
+
+export default clerkConfigured
+  ? clerkMiddleware(async (_auth, request) => handleProxy(request))
+  : defaultProxy;

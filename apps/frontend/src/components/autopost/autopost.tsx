@@ -17,6 +17,7 @@ import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import { CopilotTextarea } from '@copilotkit/react-textarea';
 import { Slider } from '@gitroom/react/form/slider';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 export const Autopost: FC = () => {
   const fetch = useFetch();
   const t = useT();
@@ -215,9 +216,7 @@ export const AddOrEditWebhook: FC<{
   const url = form.watch('url');
   const syncLast = form.watch('syncLast');
   const integrations = form.watch('integrations');
-  const integration = useCallback(async () => {
-    return (await fetch('/integrations/list')).json();
-  }, []);
+  const { data: dataList, isLoading } = useIntegrationList();
   const changeIntegration = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const findValue = options.find(
@@ -230,14 +229,6 @@ export const AddOrEditWebhook: FC<{
     },
     []
   );
-  const { data: dataList, isLoading } = useSWR('integrations', integration, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-    revalidateIfStale: false,
-    revalidateOnMount: true,
-    refreshWhenHidden: false,
-    refreshWhenOffline: false,
-  });
   const callBack = useCallback(
     async (values: any) => {
       await fetch(data?.id ? `/autopost/${data?.id}` : '/autopost', {
@@ -400,7 +391,7 @@ export const AddOrEditWebhook: FC<{
             </Select>
             {allIntegrations.value === 'specific' && dataList && !isLoading && (
               <PickPlatforms
-                integrations={dataList.integrations}
+                integrations={dataList}
                 selectedIntegrations={integrations as any[]}
                 onChange={(e) => form.setValue('integrations', e)}
                 singleSelect={false}
