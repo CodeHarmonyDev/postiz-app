@@ -16,12 +16,16 @@ const clerkConfigured = Boolean(
     process.env.NEXT_PUBLIC_CONVEX_URL
 );
 
-async function handleProxy(request: NextRequest) {
+async function handleProxy(
+  request: NextRequest,
+  clerkSignedIn = false
+) {
   const nextUrl = request.nextUrl;
   const authCookie =
     request.cookies.get('auth') ||
     request.headers.get('auth') ||
     nextUrl.searchParams.get('loggedAuth');
+  const isAuthenticated = Boolean(authCookie) || clerkSignedIn;
   const lng = request.cookies.has(cookieName)
     ? acceptLanguage.get(request.cookies.get(cookieName).value)
     : acceptLanguage.get(
@@ -44,7 +48,7 @@ async function handleProxy(request: NextRequest) {
     topResponse.headers.set(cookieName, lng);
   }
 
-  if (nextUrl.pathname.startsWith('/modal/') && !authCookie) {
+  if (nextUrl.pathname.startsWith('/modal/') && !isAuthenticated) {
     return NextResponse.redirect(new URL(`/auth/login-required`, nextUrl.href));
   }
 
@@ -92,7 +96,7 @@ async function handleProxy(request: NextRequest) {
 
   const org = nextUrl.searchParams.get('org');
   const url = new URL(nextUrl).search;
-  if (!nextUrl.pathname.startsWith('/auth') && !authCookie) {
+  if (!nextUrl.pathname.startsWith('/auth') && !isAuthenticated) {
     const providers = ['google', 'settings'];
     const findIndex = providers.find((p) => nextUrl.href.indexOf(p) > -1);
     const additional = !findIndex
@@ -110,10 +114,10 @@ async function handleProxy(request: NextRequest) {
   }
 
   // If the url is /auth and the cookie exists, redirect to /
-  if (nextUrl.pathname.startsWith('/auth') && authCookie) {
+  if (nextUrl.pathname.startsWith('/auth') && isAuthenticated) {
     return NextResponse.redirect(new URL(`/${url}`, nextUrl.href));
   }
-  if (nextUrl.pathname.startsWith('/auth') && !authCookie) {
+  if (nextUrl.pathname.startsWith('/auth') && !isAuthenticated) {
     if (org) {
       const redirect = NextResponse.redirect(new URL(`/`, nextUrl.href));
       redirect.cookies.set('org', org, {
@@ -185,5 +189,8 @@ export const config = {
 const defaultProxy = async (request: NextRequest) => handleProxy(request);
 
 export default clerkConfigured
-  ? clerkMiddleware(async (_auth, request) => handleProxy(request))
+  ? clerkMiddleware(async (auth, request) => {
+      const authState = await auth();
+      return handleProxy(request, Boolean(authState.userId));
+    })
   : defaultProxy;

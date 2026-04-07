@@ -6,12 +6,16 @@ import {
   requireUserByClerkId,
 } from './lib/auth';
 import {
+  postComposerPayloadValidator,
+  postComposerResultValidator,
   postCalendarItemValidator,
   postCalendarResponseValidator,
   postGroupResponseValidator,
   postListResponseValidator,
   postStateValidator,
   postSummaryValidator,
+  tagListResponseValidator,
+  tagSummaryValidator,
 } from './lib/validators';
 
 function toUtcMinuteString(timestamp: number) {
@@ -33,6 +37,33 @@ function startOfUtcDay(timestamp: number) {
 
 function isDefined<T>(value: T | null | undefined): value is T {
   return value !== null && value !== undefined;
+}
+
+function makeGroupId(seed: string) {
+  const normalizedSeed = seed
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .slice(-8)
+    .toLowerCase();
+
+  return `grp_${Date.now()}_${normalizedSeed || 'post'}`;
+}
+
+function parsePublishAt(type: 'draft' | 'schedule' | 'now' | 'update', date: string) {
+  if (type === 'now') {
+    return Date.now();
+  }
+
+  const publishAt = Date.parse(date);
+
+  if (Number.isNaN(publishAt)) {
+    throw new Error('Invalid publish date');
+  }
+
+  return publishAt;
+}
+
+function shouldAskForShortlink(messages: Array<string>) {
+  return messages.some((message) => /https?:\/\/\S+/i.test(message));
 }
 
 async function mapPostToCalendarItem(
@@ -137,7 +168,7 @@ async function mapPostToGroupItem(
     releaseId: post.releaseId,
     releaseURL: post.releaseUrl,
     state: post.state,
-    delay: 0,
+    delay: post.delayMinutes || 0,
     image: JSON.parse(post.imageJson || '[]'),
     settings: undefined as unknown,
     tags,
@@ -200,6 +231,61 @@ async function resolvePostScope(
   return { user, organizationId };
 }
 
+async function listGroupPosts(ctx: any, organizationId: any, groupId: string) {
+  return ctx.db
+    .query('posts')
+    .withIndex('by_organization_id_and_group_id', (q: any) =>
+      q.eq('organizationId', organizationId).eq('groupId', groupId)
+    )
+    .collect();
+}
+
+async function replaceRootPostTags(
+  ctx: any,
+  organizationId: any,
+  rootPostId: any,
+  tags: Array<{ label: string; value: string }>
+) {
+  const currentTags = await ctx.db
+    .query('postTags')
+    .withIndex('by_post_id_and_tag_id', (q: any) => q.eq('postId', rootPostId))
+    .collect();
+
+  await Promise.all(currentTags.map((row: any) => ctx.db.delete(row._id)));
+
+  const uniqueNames = Array.from(
+    new Set(
+      tags
+        .map((tag) => tag.label?.trim())
+        .filter((tagName): tagName is string => Boolean(tagName))
+    )
+  );
+
+  if (!uniqueNames.length) {
+    return;
+  }
+
+  const organizationTags = await ctx.db
+    .query('tags')
+    .withIndex('by_organization_id_and_is_deleted', (q: any) =>
+      q.eq('organizationId', organizationId).eq('isDeleted', false)
+    )
+    .collect();
+
+  const matchingTags = organizationTags.filter((tag: any) =>
+    uniqueNames.includes(tag.name)
+  );
+
+  await Promise.all(
+    matchingTags.map((tag: any) =>
+      ctx.db.insert('postTags', {
+        postId: rootPostId,
+        tagId: tag._id,
+      })
+    )
+  );
+}
+
 export const listForCurrentOrganization = query({
   args: {
     organizationId: v.optional(v.id('organizations')),
@@ -242,6 +328,7 @@ export const listForCurrentOrganization = query({
       groupId: post.groupId,
       title: post.title,
       description: post.description,
+      delayMinutes: post.delayMinutes,
       releaseId: post.releaseId,
       releaseUrl: post.releaseUrl,
       settingsJson: post.settingsJson,
@@ -620,28 +707,26 @@ export const changeDate = mutation({
   },
 });
 
-export const create = mutation({
+export const shouldShortlink = query({
   args: {
-    organizationId: v.optional(v.id('organizations')),
-    groupId: v.optional(v.string()),
-    posts: v.array(
-      v.object({
-        integrationId: v.id('integrations'),
-        content: v.string(),
-        publishAt: v.number(),
-        state: postStateValidator,
-        title: v.optional(v.string()),
-        description: v.optional(v.string()),
-        settingsJson: v.optional(v.string()),
-        imageJson: v.optional(v.string()),
-        repeatIntervalDays: v.optional(v.number()),
-      })
-    ),
+    messages: v.array(v.string()),
   },
   returns: v.object({
-    groupId: v.string(),
-    postIds: v.array(v.id('posts')),
+    ask: v.boolean(),
   }),
+  handler: async (_ctx, args) => {
+    return {
+      ask: shouldAskForShortlink(args.messages),
+    };
+  },
+});
+
+export const upsertComposerPosts = mutation({
+  args: {
+    organizationId: v.optional(v.id('organizations')),
+    payload: postComposerPayloadValidator,
+  },
+  returns: v.array(postComposerResultValidator),
   handler: async (ctx, args) => {
     const identity = await requireIdentity(ctx);
     const { user, organizationId } = await resolvePostScope(
@@ -650,52 +735,304 @@ export const create = mutation({
       args.organizationId
     );
 
-    if (args.posts.length === 0) {
+    if (args.payload.posts.length === 0) {
       throw new Error('At least one post is required');
     }
 
-    const groupId =
-      args.groupId ||
-      `group_${organizationId}_${Date.now()}_${identity.subject.slice(-6)}`;
+    const publishAt = parsePublishAt(args.payload.type, args.payload.date);
+    const createdPosts: Array<any> = [];
 
-    const postIds: Array<any> = [];
+    for (const input of args.payload.posts) {
+      const integration = await ctx.db.get(input.integration.id);
 
-    for (const item of args.posts) {
-      const integration = await ctx.db.get(item.integrationId);
-
-      if (!integration || integration.organizationId !== organizationId) {
+      if (
+        !integration ||
+        integration.organizationId !== organizationId ||
+        integration.isDeleted
+      ) {
         throw new Error('Integration does not belong to the active organization');
       }
 
-      const postId = await ctx.db.insert('posts', {
-        organizationId,
-        integrationId: item.integrationId,
-        authorUserId: user._id,
-        state: item.state,
-        publishAt: item.publishAt,
-        content: item.content,
-        groupId,
-        title: item.title,
-        description: item.description,
-        parentPostId: undefined,
-        releaseId: undefined,
-        releaseUrl: undefined,
-        settingsJson: item.settingsJson,
-        imageJson: item.imageJson,
-        submittedForOrderId: undefined,
-        submittedForOrganizationId: undefined,
-        approvalState: 'NO',
-        lastMessageId: undefined,
-        repeatIntervalDays: item.repeatIntervalDays,
-        errorMessage: undefined,
-        isDeleted: false,
-        deletedAt: undefined,
-        legacyPostId: undefined,
-      });
+      const nextGroupId = makeGroupId(String(integration._id));
+      let parentPostId: any = undefined;
+      let rootPostId: any = undefined;
+      const retainedPostIds = new Set<string>();
 
-      postIds.push(postId);
+      for (const value of input.value) {
+        const existingPost: any =
+          value.id && args.payload.type !== 'now'
+            ? await ctx.db.get(value.id as any)
+            : null;
+
+        const nextState =
+          args.payload.type === 'update' && existingPost
+            ? existingPost.state
+            : args.payload.type === 'draft'
+            ? 'DRAFT'
+            : 'QUEUE';
+
+        const basePatch: any = {
+          organizationId,
+          integrationId: input.integration.id,
+          authorUserId: user._id,
+          state: nextState,
+          publishAt,
+          content: value.content,
+          groupId: nextGroupId,
+          title: existingPost?.title,
+          description: existingPost?.description,
+          parentPostId,
+          delayMinutes: value.delay || 0,
+          releaseId: existingPost?.releaseId,
+          releaseUrl: existingPost?.releaseUrl,
+          settingsJson: JSON.stringify(input.settings || {}),
+          imageJson: JSON.stringify(value.image || []),
+          submittedForOrderId: existingPost?.submittedForOrderId,
+          submittedForOrganizationId: existingPost?.submittedForOrganizationId,
+          approvalState: existingPost?.approvalState || 'NO',
+          lastMessageId: existingPost?.lastMessageId,
+          repeatIntervalDays: args.payload.inter,
+          errorMessage: existingPost?.errorMessage,
+          isDeleted: false,
+          deletedAt: undefined,
+          legacyPostId: existingPost?.legacyPostId,
+        };
+
+        let currentPostId = existingPost?._id;
+
+        if (
+          existingPost &&
+          existingPost.organizationId === organizationId &&
+          !existingPost.isDeleted
+        ) {
+          await ctx.db.patch(existingPost._id, basePatch);
+        } else {
+          currentPostId = await ctx.db.insert('posts', basePatch);
+        }
+
+        if (!currentPostId) {
+          throw new Error('Unable to save post');
+        }
+
+        retainedPostIds.add(String(currentPostId));
+
+        if (!rootPostId) {
+          rootPostId = currentPostId;
+        }
+
+        parentPostId = currentPostId;
+      }
+
+      if (!rootPostId) {
+        throw new Error('At least one post value is required');
+      }
+
+      if (input.group) {
+        const previousGroupPosts = await listGroupPosts(ctx, organizationId, input.group);
+
+        await Promise.all(
+          previousGroupPosts
+            .filter((post: any) => !retainedPostIds.has(String(post._id)))
+            .map((post: any) =>
+              ctx.db.patch(post._id, {
+                isDeleted: true,
+                deletedAt: Date.now(),
+                parentPostId: undefined,
+              })
+            )
+        );
+      }
+
+      await replaceRootPostTags(ctx, organizationId, rootPostId, args.payload.tags);
+
+      createdPosts.push({
+        postId: String(rootPostId),
+        integration: String(input.integration.id),
+        groupId: nextGroupId,
+      });
     }
 
-    return { groupId, postIds };
+    return createdPosts;
+  },
+});
+
+export const listTags = query({
+  args: {
+    organizationId: v.optional(v.id('organizations')),
+  },
+  returns: tagListResponseValidator,
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+
+    if (!identity) {
+      return { tags: [] };
+    }
+
+    const { organizationId } = await resolvePostScope(
+      ctx,
+      identity.subject,
+      args.organizationId
+    );
+
+    const tags = await ctx.db
+      .query('tags')
+      .withIndex('by_organization_id_and_is_deleted', (q: any) =>
+        q.eq('organizationId', organizationId).eq('isDeleted', false)
+      )
+      .collect();
+
+    return {
+      tags: tags
+        .sort((a: any, b: any) => a.name.localeCompare(b.name))
+        .map((tag: any) => ({
+          id: String(tag._id),
+          name: tag.name,
+          color: tag.color,
+        })),
+    };
+  },
+});
+
+export const createTag = mutation({
+  args: {
+    organizationId: v.optional(v.id('organizations')),
+    name: v.string(),
+    color: v.string(),
+  },
+  returns: tagSummaryValidator,
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const { organizationId } = await resolvePostScope(
+      ctx,
+      identity.subject,
+      args.organizationId
+    );
+
+    const trimmedName = args.name.trim();
+
+    if (!trimmedName) {
+      throw new Error('Tag name is required');
+    }
+
+    const existingTag = await ctx.db
+      .query('tags')
+      .withIndex('by_organization_id_and_name', (q: any) =>
+        q.eq('organizationId', organizationId).eq('name', trimmedName)
+      )
+      .unique();
+
+    if (existingTag && !existingTag.isDeleted) {
+      return {
+        id: String(existingTag._id),
+        name: existingTag.name,
+        color: existingTag.color,
+      };
+    }
+
+    if (existingTag) {
+      await ctx.db.patch(existingTag._id, {
+        color: args.color,
+        isDeleted: false,
+        deletedAt: undefined,
+      });
+
+      return {
+        id: String(existingTag._id),
+        name: trimmedName,
+        color: args.color,
+      };
+    }
+
+    const tagId = await ctx.db.insert('tags', {
+      organizationId,
+      name: trimmedName,
+      color: args.color,
+      isDeleted: false,
+      deletedAt: undefined,
+      legacyTagId: undefined,
+    });
+
+    return {
+      id: String(tagId),
+      name: trimmedName,
+      color: args.color,
+    };
+  },
+});
+
+export const updateTag = mutation({
+  args: {
+    organizationId: v.optional(v.id('organizations')),
+    tagId: v.string(),
+    name: v.string(),
+    color: v.string(),
+  },
+  returns: tagSummaryValidator,
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const { organizationId } = await resolvePostScope(
+      ctx,
+      identity.subject,
+      args.organizationId
+    );
+
+    const tag: any = await ctx.db.get(args.tagId as any);
+
+    if (!tag || tag.organizationId !== organizationId || tag.isDeleted) {
+      throw new Error('Tag not found');
+    }
+
+    const trimmedName = args.name.trim();
+
+    if (!trimmedName) {
+      throw new Error('Tag name is required');
+    }
+
+    await ctx.db.patch(tag._id, {
+      name: trimmedName,
+      color: args.color,
+    });
+
+    return {
+      id: String(tag._id),
+      name: trimmedName,
+      color: args.color,
+    };
+  },
+});
+
+export const deleteTag = mutation({
+  args: {
+    organizationId: v.optional(v.id('organizations')),
+    tagId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const { organizationId } = await resolvePostScope(
+      ctx,
+      identity.subject,
+      args.organizationId
+    );
+
+    const tag: any = await ctx.db.get(args.tagId as any);
+
+    if (!tag || tag.organizationId !== organizationId || tag.isDeleted) {
+      return null;
+    }
+
+    await ctx.db.patch(tag._id, {
+      isDeleted: true,
+      deletedAt: Date.now(),
+    });
+
+    const links = await ctx.db
+      .query('postTags')
+      .withIndex('by_tag_id_and_post_id', (q: any) => q.eq('tagId', tag._id))
+      .collect();
+
+    await Promise.all(links.map((row: any) => ctx.db.delete(row._id)));
+
+    return null;
   },
 });

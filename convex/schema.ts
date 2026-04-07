@@ -185,6 +185,7 @@ export default defineSchema({
     title: v.optional(v.string()),
     description: v.optional(v.string()),
     parentPostId: v.optional(v.id('posts')),
+    delayMinutes: v.optional(v.number()),
     releaseId: v.optional(v.string()),
     releaseUrl: v.optional(v.string()),
     settingsJson: v.optional(v.string()),

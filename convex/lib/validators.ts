@@ -236,10 +236,70 @@ export const postSummaryValidator = v.object({
   groupId: v.string(),
   title: v.optional(v.string()),
   description: v.optional(v.string()),
+  delayMinutes: v.optional(v.number()),
   releaseId: v.optional(v.string()),
   releaseUrl: v.optional(v.string()),
   settingsJson: v.optional(v.string()),
   imageJson: v.optional(v.string()),
   repeatIntervalDays: v.optional(v.number()),
   errorMessage: v.optional(v.string()),
+});
+
+export const postComposerMediaValidator = v.object({
+  id: v.optional(v.string()),
+  path: v.string(),
+  alt: v.optional(v.string()),
+  thumbnail: v.optional(v.string()),
+  thumbnailTimestamp: v.optional(v.number()),
+});
+
+export const postComposerValueValidator = v.object({
+  id: v.optional(v.string()),
+  content: v.string(),
+  delay: v.optional(v.number()),
+  image: v.array(postComposerMediaValidator),
+});
+
+export const postComposerTagValidator = v.object({
+  value: v.string(),
+  label: v.string(),
+});
+
+export const postComposerPayloadValidator = v.object({
+  type: v.union(
+    v.literal('draft'),
+    v.literal('schedule'),
+    v.literal('now'),
+    v.literal('update')
+  ),
+  shortLink: v.boolean(),
+  inter: v.optional(v.number()),
+  date: v.string(),
+  tags: v.array(postComposerTagValidator),
+  posts: v.array(
+    v.object({
+      integration: v.object({
+        id: v.id('integrations'),
+      }),
+      value: v.array(postComposerValueValidator),
+      group: v.optional(v.string()),
+      settings: v.any(),
+    })
+  ),
+});
+
+export const postComposerResultValidator = v.object({
+  postId: v.string(),
+  integration: v.string(),
+  groupId: v.string(),
+});
+
+export const tagSummaryValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  color: v.string(),
+});
+
+export const tagListResponseValidator = v.object({
+  tags: v.array(tagSummaryValidator),
 });

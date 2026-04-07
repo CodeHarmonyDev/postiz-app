@@ -2,7 +2,6 @@
 
 import { FC, useCallback, useMemo, useState } from 'react';
 import { ReactTags } from 'react-tag-autocomplete';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import useSWR from 'swr';
 import { Input } from '@gitroom/react/form/input';
 import { ColorPicker } from '@gitroom/react/form/color.picker';
@@ -18,6 +17,7 @@ import {
   PlusIcon,
   CheckmarkIcon,
 } from '@gitroom/frontend/components/ui/icons';
+import { usePostTagsApi } from '@gitroom/frontend/components/launches/helpers/use.post-tags-api';
 
 export const TagsComponent: FC<{
   name: string;
@@ -30,11 +30,11 @@ export const TagsComponent: FC<{
     };
   }) => void;
 }> = (props) => {
-  const fetch = useFetch();
+  const { listTags } = usePostTagsApi();
 
   const loadTags = useCallback(async () => {
-    return (await fetch('/posts/tags')).json();
-  }, []);
+    return listTags();
+  }, [listTags]);
 
   const { data, isLoading, mutate } = useSWR('load-tags', loadTags);
 
@@ -59,7 +59,7 @@ export const TagsComponentInner: FC<{
   }) => void;
 }> = ({ initial, onChange, name, mutate, allTags: data }) => {
   const t = useT();
-  const fetch = useFetch();
+  const { deleteTag: deleteTagApi } = usePostTagsApi();
   const [isOpen, setIsOpen] = useState(false);
   const [allowClose, setAllowClose] = useState(true);
   const [tagValue, setTagValue] = useState<any[]>(
@@ -105,7 +105,7 @@ export const TagsComponentInner: FC<{
     }
   }, []);
 
-  const deleteTag = useCallback(
+  const handleDeleteTag = useCallback(
     async (tag: any, e: React.MouseEvent) => {
       setAllowClose(false);
       e.stopPropagation();
@@ -129,9 +129,7 @@ export const TagsComponentInner: FC<{
         return;
       }
 
-      await fetch(`/posts/tags/${tag.id}`, {
-        method: 'DELETE',
-      });
+      await deleteTagApi(tag.id);
 
       // Remove the tag from current selection if it was selected
       const modify = tagValue.filter((a) => a.id !== tag.id);
@@ -154,7 +152,7 @@ export const TagsComponentInner: FC<{
         setAllowClose(true);
       }, 500);
     },
-    [tagValue, name, onChange, mutate, fetch, modals, t]
+    [deleteTagApi, tagValue, name, onChange, mutate, modals, t]
   );
 
   return (
@@ -233,7 +231,7 @@ export const TagsComponentInner: FC<{
               </div>
               {!tagValue.find((a) => a.id === p.id) && (
                 <div
-                  onClick={(e) => deleteTag(p, e)}
+                  onClick={(e) => handleDeleteTag(p, e)}
                   className="ms-auto transition-opacity cursor-pointer text-red-500 text-[14px] font-[600]"
                 >
                   ×
@@ -286,13 +284,13 @@ export const TagsComponentA: FC<{
   }) => void;
 }> = (props) => {
   const { onChange, name, initial } = props;
-  const fetch = useFetch();
+  const { listTags } = usePostTagsApi();
   const [tagValue, setTagValue] = useState<any[]>(initial?.slice(0) || []);
   const [suggestions, setSuggestions] = useState<string>('');
   const [showModal, setShowModal] = useState<any>(false);
   const loadTags = useCallback(async () => {
-    return (await fetch('/posts/tags')).json();
-  }, []);
+    return listTags();
+  }, [listTags]);
   const { isLoading, data, mutate } = useSWR<{
     tags: {
       name: string;
@@ -521,20 +519,18 @@ const ShowModal: FC<{
   const t = useT();
 
   const { close, tag, resolve, color: theColor, id } = props;
-  const fetch = useFetch();
+  const { createTag, updateTag } = usePostTagsApi();
   const [color, setColor] = useState<string>(theColor || '#942828');
   const [tagName, setTagName] = useState<string>(tag);
   const save = useCallback(async () => {
-    await fetch(id ? `/posts/tags/${id}` : '/posts/tags', {
-      method: id ? 'PUT' : 'POST',
-      body: JSON.stringify({
-        name: tagName,
-        color,
-      }),
-    });
+    if (id) {
+      await updateTag(id, tagName, color);
+    } else {
+      await createTag(tagName, color);
+    }
     resolve(tagName);
     close();
-  }, [tagName, color, id]);
+  }, [close, color, createTag, id, resolve, tagName, updateTag]);
   return (
     <div>
       <Input

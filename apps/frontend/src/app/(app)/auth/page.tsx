@@ -1,6 +1,7 @@
 import { internalFetch } from '@gitroom/helpers/utils/internal.fetch';
 export const dynamic = 'force-dynamic';
 import { Register } from '@gitroom/frontend/components/auth/register';
+import { ClerkAuthPanel } from '@gitroom/frontend/components/auth/clerk-auth-panel';
 import { Metadata } from 'next';
 import { isGeneralServerSide } from '@gitroom/helpers/utils/is.general.server.side';
 import Link from 'next/link';
@@ -12,6 +13,20 @@ export const metadata: Metadata = {
 };
 export default async function Auth(params: {searchParams: Promise<{provider: string}>}) {
   const t = await getT();
+  const clerkEnabled = Boolean(
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+      process.env.NEXT_PUBLIC_CONVEX_URL
+  );
+
+  if (clerkEnabled) {
+    return (
+      <ClerkAuthPanel
+        mode="sign-up"
+        registrationDisabled={process.env.DISABLE_REGISTRATION === 'true'}
+      />
+    );
+  }
+
   if (process.env.DISABLE_REGISTRATION === 'true') {
     const canRegister = (
       await (await internalFetch('/auth/can-register')).json()

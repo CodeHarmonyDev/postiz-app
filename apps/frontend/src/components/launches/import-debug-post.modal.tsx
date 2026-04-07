@@ -1,13 +1,13 @@
 'use client';
 
 import { FC, useCallback, useMemo, useState } from 'react';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { Button } from '@gitroom/react/form/button';
 import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 import { useSWRConfig } from 'swr';
 import clsx from 'clsx';
+import { usePostActionsApi } from '@gitroom/frontend/components/launches/helpers/use.post-actions-api';
 
 interface DebugPostData {
   type: string;
@@ -42,7 +42,6 @@ interface DebugPostData {
 }
 
 export const ImportDebugPostModal: FC<{ close: () => void }> = ({ close }) => {
-  const fetch = useFetch();
   const toaster = useToaster();
   const t = useT();
   const [jsonInput, setJsonInput] = useState('');
@@ -52,6 +51,7 @@ export const ImportDebugPostModal: FC<{ close: () => void }> = ({ close }) => {
   const [importing, setImporting] = useState(false);
   const { data: integrations } = useIntegrationList();
   const { mutate } = useSWRConfig();
+  const { saveComposerPosts } = usePostActionsApi();
 
   const handleJsonChange = useCallback((value: string) => {
     setJsonInput(value);
@@ -88,7 +88,7 @@ export const ImportDebugPostModal: FC<{ close: () => void }> = ({ close }) => {
       const { _debug, ...payload } = parsed;
       const importPayload = {
         ...payload,
-        type: 'draft',
+        type: 'draft' as const,
         date: new Date().toISOString(),
         tags: [] as { value: string; label: string }[],
         posts: payload.posts.map((post) => ({
@@ -97,10 +97,7 @@ export const ImportDebugPostModal: FC<{ close: () => void }> = ({ close }) => {
         })),
       };
 
-      await fetch('/posts', {
-        method: 'POST',
-        body: JSON.stringify(importPayload),
-      });
+      await saveComposerPosts(importPayload);
 
       await mutate(
         (key: string) =>
@@ -123,7 +120,7 @@ export const ImportDebugPostModal: FC<{ close: () => void }> = ({ close }) => {
     } finally {
       setImporting(false);
     }
-  }, [parsed, selectedIntegrationId, fetch, toaster, t, close, mutate]);
+  }, [parsed, selectedIntegrationId, saveComposerPosts, toaster, t, close, mutate]);
 
   return (
     <div className="flex flex-col gap-[16px] min-w-[500px]">

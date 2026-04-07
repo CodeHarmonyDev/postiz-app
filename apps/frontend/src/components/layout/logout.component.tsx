@@ -10,6 +10,10 @@ export const LogoutComponent: FC<{ isIcon?: boolean }> = ({ isIcon }) => {
   const fetch = useFetch();
   const { isGeneral, isSecured } = useVariables();
   const t = useT();
+  const clerkConfigured = Boolean(
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+      process.env.NEXT_PUBLIC_CONVEX_URL
+  );
 
   const logout = useCallback(async () => {
     if (
@@ -21,6 +25,26 @@ export const LogoutComponent: FC<{ isIcon?: boolean }> = ({ isIcon }) => {
         t('yes_logout', 'Yes logout')
       )
     ) {
+      if (clerkConfigured && typeof window !== 'undefined') {
+        const clerk = (window as Window & {
+          Clerk?: {
+            signOut: (options?: { redirectUrl?: string }) => Promise<void>;
+          };
+        }).Clerk;
+
+        if (clerk?.signOut) {
+          await clerk.signOut({
+            redirectUrl: '/auth/login',
+          });
+          return;
+        }
+      }
+
+      if (clerkConfigured) {
+        window.location.href = '/auth/login';
+        return;
+      }
+
       if (!isSecured) {
         setCookie('auth', '', -10);
       } else {
@@ -30,7 +54,7 @@ export const LogoutComponent: FC<{ isIcon?: boolean }> = ({ isIcon }) => {
       }
       window.location.href = '/';
     }
-  }, []);
+  }, [clerkConfigured, fetch, isSecured, t]);
   return (
     <>
       <div className="cursor-pointer" onClick={logout}>

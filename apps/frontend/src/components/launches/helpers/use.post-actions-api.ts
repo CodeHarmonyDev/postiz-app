@@ -7,12 +7,42 @@ import { useAppViewer } from '@gitroom/frontend/components/layout/use-app-viewer
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useConvex, useMutation } from 'convex/react';
 
+export type ComposerMediaItem = {
+  id?: string;
+  path: string;
+  alt?: string;
+  thumbnail?: string;
+  thumbnailTimestamp?: number;
+};
+
+export type ComposerPayload = {
+  type: 'draft' | 'schedule' | 'now' | 'update';
+  inter?: number;
+  tags: Array<{ value: string; label: string }>;
+  shortLink: boolean;
+  date: string;
+  posts: Array<{
+    integration: {
+      id: string;
+    };
+    group?: string;
+    settings: Record<string, unknown>;
+    value: Array<{
+      id?: string;
+      content: string;
+      delay?: number;
+      image: Array<ComposerMediaItem>;
+    }>;
+  }>;
+};
+
 export function usePostActionsApi() {
   const fetch = useFetch();
   const convex = useConvex();
   const { canUseConvex } = useAppViewer();
   const deleteGroupMutation = useMutation(api.posts.deleteGroup);
   const changeDateMutation = useMutation(api.posts.changeDate);
+  const upsertComposerPostsMutation = useMutation(api.posts.upsertComposerPosts);
 
   const getGroup = useCallback(
     async (groupId: string) => {
@@ -93,9 +123,73 @@ export function usePostActionsApi() {
     [canUseConvex, changeDateMutation, fetch]
   );
 
+  const shouldShortlink = useCallback(
+    async (messages: Array<string>) => {
+      try {
+        const response = await fetch('/posts/should-shortlink', {
+          method: 'POST',
+          body: JSON.stringify({
+            messages,
+          }),
+        });
+
+        if (response.ok) {
+          return await response.json();
+        }
+      } catch {
+        /** empty **/
+      }
+
+      if (canUseConvex) {
+        return await convex.query(api.posts.shouldShortlink, {
+          messages,
+        });
+      }
+
+      return { ask: false };
+    },
+    [canUseConvex, convex, fetch]
+  );
+
+  const saveComposerPosts = useCallback(
+    async (payload: ComposerPayload) => {
+      try {
+        const response = await fetch('/posts', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+
+        if (response.ok) {
+          return await response.json();
+        }
+      } catch {
+        /** empty **/
+      }
+
+      if (canUseConvex) {
+        return await upsertComposerPostsMutation({
+          payload: {
+            ...payload,
+            posts: payload.posts.map((post) => ({
+              ...post,
+              integration: {
+                id: post.integration.id as Id<'integrations'>,
+              },
+            })),
+          },
+        });
+      }
+
+      throw new Error('Unable to save posts');
+    },
+    [canUseConvex, fetch, upsertComposerPostsMutation]
+  );
+
   return {
     getGroup,
     deleteGroup,
     changeDate,
+    shouldShortlink,
+    saveComposerPosts,
   };
 }

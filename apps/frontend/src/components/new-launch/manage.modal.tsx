@@ -25,7 +25,6 @@ import { TagsComponent } from '@gitroom/frontend/components/launches/tags.compon
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { weightedLength } from '@gitroom/helpers/utils/count.length';
 import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { capitalize } from 'lodash';
@@ -44,6 +43,7 @@ import { useHasScroll } from '@gitroom/frontend/components/ui/is.scroll.hook';
 import { useShortlinkPreference } from '@gitroom/frontend/components/settings/shortlink-preference.component';
 import dayjs from 'dayjs';
 import { Button } from '@gitroom/react/form/button';
+import { usePostActionsApi } from '@gitroom/frontend/components/launches/helpers/use.post-actions-api';
 
 function countCharacters(text: string, type: string): number {
   if (type !== 'x') {
@@ -54,7 +54,6 @@ function countCharacters(text: string, type: string): number {
 
 export const ManageModal: FC<AddEditModalProps> = (props) => {
   const t = useT();
-  const fetch = useFetch();
   const ref = useRef(null);
   const existingData = useExistingData();
   const [loading, setLoading] = useState(false);
@@ -62,6 +61,8 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
   const modal = useModals();
   const [showSettings, setShowSettings] = useState(false);
   const { data: shortlinkPreferenceData } = useShortlinkPreference();
+  const { deleteGroup, saveComposerPosts, shouldShortlink } =
+    usePostActionsApi();
 
   const { addEditSets, mutate, customClose, dummy } = props;
 
@@ -190,13 +191,11 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       setLoading(false);
       return;
     }
-    await fetch(`/posts/${existingData.group}`, {
-      method: 'DELETE',
-    });
+    await deleteGroup(existingData.group);
     mutate();
     modal.closeAll();
     return;
-  }, [existingData, mutate, modal]);
+  }, [deleteGroup, existingData, mutate, modal]);
 
   const schedule = useCallback(
     (type: 'draft' | 'now' | 'schedule' | 'update') => async () => {
@@ -337,16 +336,11 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       let shortLink = false;
 
       if (!dummy && shortlinkPreference !== 'NO') {
-        const shortLinkUrl = await (
-          await fetch('/posts/should-shortlink', {
-            method: 'POST',
-            body: JSON.stringify({
-              messages: checkAllValid.flatMap((p: any) =>
-                p.values.flatMap((a: any) => a.content)
-              ),
-            }),
-          })
-        ).json();
+        const shortLinkUrl = await shouldShortlink(
+          checkAllValid.flatMap((p: any) =>
+            p.values.flatMap((a: any) => a.content)
+          )
+        );
 
         if (shortLinkUrl.ask) {
           if (shortlinkPreference === 'YES') {
@@ -413,12 +407,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       }
 
       if (!dummy) {
-        addEditSets
-          ? addEditSets(data)
-          : await fetch('/posts', {
-              method: 'POST',
-              body: JSON.stringify(data),
-            });
+        addEditSets ? addEditSets(data) : await saveComposerPosts(data);
 
         if (!addEditSets) {
           mutate();
@@ -439,7 +428,17 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
         }
       }
     },
-    [ref, repeater, tags, date, addEditSets, dummy, shortlinkPreferenceData]
+    [
+      ref,
+      repeater,
+      tags,
+      date,
+      addEditSets,
+      dummy,
+      saveComposerPosts,
+      shouldShortlink,
+      shortlinkPreferenceData,
+    ]
   );
 
   return (
