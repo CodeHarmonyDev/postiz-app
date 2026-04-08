@@ -17,7 +17,6 @@ Build `apps/frontendV2` as a fresh React SPA with:
 - TanStack Router
 - Clerk React SDK
 - Convex React client with Clerk auth bridging
-- TanStack Query for non-Convex server state
 - Vitest + Testing Library for unit/component tests
 - Playwright for end-to-end tests
 - Cloudflare deployment for the frontend shell
@@ -86,9 +85,8 @@ Important current characteristics:
 - Authentication: Clerk via `@clerk/clerk-react`
 - App data: Convex for domains already migrated or actively migrating
 - Legacy backend access: typed API client modules against the existing Nest backend
-- Async server state:
-  - Convex hooks for Convex-backed domains
-  - TanStack Query for legacy REST-backed domains
+- Async server state: Convex hooks should be the default application data layer
+- For legacy REST-backed domains that are not yet on Convex, use thin typed API modules or feature-specific hooks without introducing a second general-purpose server-state framework by default
 
 ### UI and Styling
 
@@ -234,7 +232,7 @@ Use Convex first for:
 - calendar/listed posts
 - public preview/comments where already supported
 
-Use TanStack Query + typed REST client for domains not yet migrated:
+Use thin typed REST client modules or feature-specific hooks for domains not yet migrated:
 
 - billing
 - OAuth app/public API management
@@ -318,7 +316,6 @@ Agent should create the new provider stack:
 
 - Clerk provider
 - Convex provider with Clerk bridge
-- TanStack Query provider
 - Sentry provider/init
 - analytics provider(s)
 - app config/env provider
@@ -522,7 +519,7 @@ The migration is done when:
 - authenticated product routes no longer depend on Next runtime APIs
 - Clerk is the only frontend session source
 - Convex-backed domains use Convex directly
-- legacy Nest domains are accessed through typed API modules and TanStack Query
+- legacy Nest domains are accessed through typed API modules or narrowly scoped hooks until they are moved to Convex
 - Vitest covers core units/components
 - Playwright covers critical end-to-end flows
 - Sentry and analytics are wired in production
@@ -536,7 +533,7 @@ The migration is done when:
 3. Keep all new data access behind domain adapters. No raw fetches from view components.
 4. Use Clerk React, not `@clerk/nextjs`.
 5. Use Convex first where the repo already has Convex support.
-6. Use TanStack Query for the remaining Nest-backed domains.
+6. Do not add TanStack Query by default; use Convex as the primary server-state model.
 7. Add Vitest and Playwright before migrating major features.
 8. Treat media, OAuth callback flows, and billing as explicit risk areas.
 9. Do not migrate the extension/modal surface in the first pass unless product scope requires it.
