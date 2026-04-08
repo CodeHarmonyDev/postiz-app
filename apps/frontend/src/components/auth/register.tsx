@@ -11,7 +11,7 @@ import { Input } from '@gitroom/react/form/input';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import {
-  consumeReturnUrl,
+  getAuthCompleteUrl,
   getAuthRedirectTarget,
   getSsoRedirectUrl,
   setClerkFormError,
@@ -84,7 +84,7 @@ export function Register({
       }: {
         decorateUrl: (url: string) => string;
       }) => {
-        const url = decorateUrl(consumeReturnUrl());
+        const url = decorateUrl(getAuthCompleteUrl());
         if (url.startsWith('http')) {
           window.location.href = url;
           return;

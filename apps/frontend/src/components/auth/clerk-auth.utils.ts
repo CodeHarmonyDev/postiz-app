@@ -5,6 +5,7 @@ import type { FieldValues, Path, UseFormReturn } from 'react-hook-form';
 
 const DEFAULT_AUTH_REDIRECT = '/launches';
 const SSO_CALLBACK_PATH = '/auth/sso-callback';
+const AUTH_COMPLETE_PATH = '/auth/complete';
 
 export function readReturnUrl() {
   if (typeof window === 'undefined') {
@@ -34,6 +35,10 @@ export function getSsoRedirectUrl() {
   }
 
   return `${window.location.origin}${SSO_CALLBACK_PATH}`;
+}
+
+export function getAuthCompleteUrl() {
+  return AUTH_COMPLETE_PATH;
 }
 
 export function setClerkFormError<T extends FieldValues>(

@@ -47,6 +47,7 @@ const jakartaSans = Plus_Jakarta_Sans({
   style: ['normal', 'italic'],
   subsets: ['latin'],
 });
+const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 export const LayoutComponent = ({ children }: { children: ReactNode }) => {
   const { backendUrl, billingEnabled, isGeneral } = useVariables();
@@ -89,7 +90,9 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
                 jakartaSans.className
               )}
             >
-              <div>{user?.admin ? <Impersonate /> : <div />}</div>
+              <div>
+                {user?.admin && !clerkConfigured ? <Impersonate /> : <div />}
+              </div>
               {user.tier === 'FREE' && isGeneral && billingEnabled ? (
                 <FirstBillingComponent />
               ) : (

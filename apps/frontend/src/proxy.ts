@@ -140,8 +140,13 @@ async function handleProxy(
   }
 
   // If the url is /auth and the cookie exists, redirect to /
-  if (nextUrl.pathname.startsWith('/auth') && isAuthenticated) {
-    return NextResponse.redirect(new URL(`/${url}`, nextUrl.href));
+  if (
+    nextUrl.pathname.startsWith('/auth') &&
+    nextUrl.pathname !== '/auth/complete' &&
+    isAuthenticated
+  ) {
+    const destination = clerkConfigured ? `/auth/complete${url}` : `/${url}`;
+    return NextResponse.redirect(new URL(destination, nextUrl.href));
   }
   if (nextUrl.pathname.startsWith('/auth') && !isAuthenticated) {
     if (org) {

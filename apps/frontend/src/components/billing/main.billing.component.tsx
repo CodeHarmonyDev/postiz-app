@@ -224,6 +224,7 @@ export const MainBillingComponent: FC<{
   const utm = useUtmUrl();
   const track = useTrack();
   const t = useT();
+  const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
   const queryParams = useSearchParams();
   const [finishTrial, setFinishTrial] = useState(
     !!queryParams.get('finishTrial')
@@ -418,21 +419,25 @@ export const MainBillingComponent: FC<{
             subscriptionTier: billing,
             cancelAt: null,
           }));
-          mutate(
-            '/user/self',
-            {
-              ...user,
-              tier: billing,
-            },
-            {
-              revalidate: false,
-            }
-          );
+          if (clerkConfigured) {
+            router.refresh();
+          } else {
+            mutate(
+              '/user/self',
+              {
+                ...user,
+                tier: billing,
+              },
+              {
+                revalidate: false,
+              }
+            );
+          }
           toast.show('Subscription updated successfully');
         }
         setLoading(false);
       },
-    [monthlyOrYearly, subscription, user, utm]
+    [clerkConfigured, monthlyOrYearly, router, subscription, user, utm]
   );
   if (user?.isLifetime) {
     router.replace('/');

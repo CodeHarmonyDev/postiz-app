@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSWRConfig } from 'swr';
 import { useUser } from '../layout/user.context';
 import copy from 'copy-to-clipboard';
@@ -460,8 +461,10 @@ const PublicApiContent = () => {
   const fetch = useFetch();
   const decision = useDecisionModal();
   const { mutate } = useSWRConfig();
+  const router = useRouter();
   const [reveal, setReveal] = useState(false);
   const t = useT();
+  const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
   const rotateKey = useCallback(async () => {
     const approved = await decision.open({
@@ -475,16 +478,35 @@ const PublicApiContent = () => {
     });
     if (!approved) return;
     await fetch('/user/api-key/rotate', { method: 'POST' });
-    await mutate('/user/self');
+    if (clerkConfigured) {
+      router.refresh();
+    } else {
+      await mutate('/user/self');
+    }
     setReveal(false);
     toaster.show(
       t('api_key_rotated', 'API Key rotated successfully'),
       'success'
     );
-  }, [decision, fetch, mutate, toaster]);
+  }, [clerkConfigured, decision, fetch, mutate, router, t, toaster]);
 
-  if (!user || !user.publicApi) {
+  if (!user) {
     return null;
+  }
+
+  if (!user.publicApi) {
+    if (!clerkConfigured) {
+      return null;
+    }
+
+    return (
+      <div className="rounded-[12px] border border-newBorder bg-newBgColorInnerInner p-[24px] text-[14px] leading-[1.7] text-customColor18">
+        {t(
+          'public_api_migration_in_progress',
+          'Public API keys are not available in the Clerk + Convex workspace yet. The signed-in shell is now Clerk-backed, but API key reveal and rotation still need their own Convex migration.'
+        )}
+      </div>
+    );
   }
 
   const mcpBase = mcpUrl || backendUrl;

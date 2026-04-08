@@ -8,7 +8,10 @@ import { FormProvider, SubmitHandler, useForm } from 'react-hook-form';
 import { Button } from '@gitroom/react/form/button';
 import { Input } from '@gitroom/react/form/input';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
-import { consumeReturnUrl, setClerkFormError } from './clerk-auth.utils';
+import {
+  getAuthCompleteUrl,
+  setClerkFormError,
+} from './clerk-auth.utils';
 
 type VerificationInputs = {
   code: string;
@@ -54,7 +57,7 @@ export function Activate() {
           }: {
             decorateUrl: (url: string) => string;
           }) => {
-            const url = decorateUrl(consumeReturnUrl());
+            const url = decorateUrl(getAuthCompleteUrl());
             if (url.startsWith('http')) {
               window.location.href = url;
               return;

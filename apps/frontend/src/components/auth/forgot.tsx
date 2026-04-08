@@ -8,7 +8,10 @@ import { useClerk, useSignIn } from '@clerk/nextjs';
 import { Button } from '@gitroom/react/form/button';
 import { Input } from '@gitroom/react/form/input';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
-import { consumeReturnUrl, setClerkFormError } from './clerk-auth.utils';
+import {
+  getAuthCompleteUrl,
+  setClerkFormError,
+} from './clerk-auth.utils';
 
 type Inputs = {
   email: string;
@@ -118,7 +121,7 @@ export function Forgot() {
           }: {
             decorateUrl: (url: string) => string;
           }) => {
-            const url = decorateUrl(consumeReturnUrl());
+            const url = decorateUrl(getAuthCompleteUrl());
             if (url.startsWith('http')) {
               window.location.href = url;
               return;

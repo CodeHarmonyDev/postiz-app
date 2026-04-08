@@ -21,20 +21,6 @@ type LegacyOrganization = {
   name: string;
 };
 
-type ViewerSupplement = Partial<
-  Pick<
-    RawAppUser,
-    | 'bio'
-    | 'audience'
-    | 'publicApi'
-    | 'totalChannels'
-    | 'isLifetime'
-    | 'impersonate'
-  >
-> & {
-  tier?: string;
-};
-
 export type AppOrganization = {
   id: string;
   name: string;
@@ -74,49 +60,17 @@ function mapLegacyUser(legacyUser: any): RawAppUser | undefined {
   return legacyUser as RawAppUser;
 }
 
-function mapViewerSupplement(legacyUser: any): ViewerSupplement | undefined {
-  if (!legacyUser || typeof legacyUser !== 'object') {
-    return undefined;
-  }
-
-  return {
-    bio: typeof legacyUser.bio === 'string' ? legacyUser.bio : undefined,
-    audience:
-      typeof legacyUser.audience === 'number' ? legacyUser.audience : undefined,
-    publicApi:
-      typeof legacyUser.publicApi === 'string' ? legacyUser.publicApi : undefined,
-    totalChannels:
-      typeof legacyUser.totalChannels === 'number'
-        ? legacyUser.totalChannels
-        : undefined,
-    tier: typeof legacyUser.tier === 'string' ? legacyUser.tier : undefined,
-    isLifetime:
-      typeof legacyUser.isLifetime === 'boolean'
-        ? legacyUser.isLifetime
-        : undefined,
-    impersonate:
-      typeof legacyUser.impersonate === 'boolean'
-        ? legacyUser.impersonate
-        : undefined,
-  };
-}
-
 function mapConvexViewerToRawUser(
   viewer: any,
-  supplement: ViewerSupplement | undefined,
   billingEnabled: boolean
 ): RawAppUser | undefined {
   if (!viewer) {
     return undefined;
   }
 
-  const tier = normalizeTier(
-    viewer.subscription?.tier || supplement?.tier,
-    billingEnabled
-  );
+  const tier = normalizeTier(viewer.subscription?.tier, billingEnabled);
   const totalChannels =
     viewer.subscription?.totalChannels ??
-    supplement?.totalChannels ??
     (!billingEnabled ? 10000 : pricing[tier].channel);
 
   return {
@@ -134,17 +88,17 @@ function mapConvexViewerToRawUser(
     imageUrl: viewer.user.imageUrl,
     timezone: viewer.user.timezone,
     language: viewer.user.language,
-    bio: supplement?.bio ?? viewer.user.bio,
-    audience: supplement?.audience ?? viewer.user.audience ?? 0,
+    bio: viewer.user.bio,
+    audience: viewer.user.audience ?? 0,
     isSuperAdmin: viewer.user.isSuperAdmin,
     admin: viewer.user.isSuperAdmin,
     orgId: String(viewer.organization._id),
     tier,
-    publicApi: supplement?.publicApi || '',
+    publicApi: '',
     role: viewer.membership.role,
     totalChannels,
-    isLifetime: viewer.subscription?.isLifetime ?? supplement?.isLifetime,
-    impersonate: supplement?.impersonate ?? false,
+    isLifetime: viewer.subscription?.isLifetime,
+    impersonate: false,
     allowTrial: viewer.organization.allowTrial,
     isTrailing: billingEnabled ? viewer.organization.isTrailing : false,
     streakSince: viewer.organization.streakSince
@@ -208,7 +162,7 @@ export function useAppViewer() {
     mutate: mutateLegacyUser,
     isLoading: isLoadingLegacyUser,
   } = useSWR(
-    clerkConfigured ? (isSignedIn ? '/user/self' : null) : '/user/self',
+    clerkConfigured ? null : '/user/self',
     loadLegacyUser,
     {
       revalidateOnFocus: false,
@@ -221,10 +175,6 @@ export function useAppViewer() {
 
   const legacyUser = useMemo(
     () => mapLegacyUser(legacyUserData),
-    [legacyUserData]
-  );
-  const viewerSupplement = useMemo(
-    () => mapViewerSupplement(legacyUserData),
     [legacyUserData]
   );
 
@@ -245,8 +195,8 @@ export function useAppViewer() {
   );
 
   const convexUser = useMemo(
-    () => mapConvexViewerToRawUser(convexViewer, viewerSupplement, billingEnabled),
-    [billingEnabled, convexViewer, viewerSupplement]
+    () => mapConvexViewerToRawUser(convexViewer, billingEnabled),
+    [billingEnabled, convexViewer]
   );
 
   const user = clerkConfigured ? convexUser : legacyUser;
@@ -348,6 +298,7 @@ export function useAppViewer() {
     refreshUser: async () => {
       if (clerkConfigured && convexConfigured && isSignedIn) {
         await syncViewer({});
+        return;
       }
 
       await mutateLegacyUser();

@@ -20,6 +20,7 @@ export const LifetimeDeal = () => {
   const { mutate } = useSWRConfig();
   const router = useRouter();
   const fireEvents = useFireEvents();
+  const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
   const claim = useCallback(async () => {
     const { success } = await (
       await fetch('/billing/lifetime', {
@@ -33,14 +34,18 @@ export const LifetimeDeal = () => {
       })
     ).json();
     if (success) {
-      mutate('/user/self');
+      if (clerkConfigured) {
+        router.refresh();
+      } else {
+        mutate('/user/self');
+      }
       toast.show('Successfully claimed the code');
       fireEvents('lifetime_claimed');
     } else {
       toast.show('Code already claimed or invalid code', 'warning');
     }
     setCode('');
-  }, [code]);
+  }, [clerkConfigured, code, fireEvents, fetch, mutate, router, toast]);
   const nextPackage = useMemo(() => {
     if (user?.tier?.current === 'STANDARD') {
       return 'PRO';
