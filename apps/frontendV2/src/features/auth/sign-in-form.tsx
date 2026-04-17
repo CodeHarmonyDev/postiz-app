@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useClerk, useSignIn } from '@clerk/react'
-import { AUTH_COMPLETE_PATH, getSsoCallbackUrl, readReturnTo } from '../../lib/auth'
+import { AUTH_COMPLETE_PATH, AUTH_SSO_CALLBACK_PATH } from '../../lib/auth'
 import { getClerkErrorMessage, getClerkFieldError } from '../../lib/clerk'
 
-type SignInStep = 'credentials' | 'mfa'
-type MfaStrategy = 'email_code' | 'phone_code' | 'totp' | null
+type SignInStep = 'credentials' | 'second_factor'
+type SecondFactorStrategy = 'email_code' | 'phone_code' | 'totp' | null
 
 type FormState = {
   email: string
@@ -51,12 +51,12 @@ function Field({
 }
 
 export function SignInForm() {
-  const { signIn } = useSignIn()
+  const { signIn, isLoaded } = useSignIn()
   const { setActive } = useClerk()
   const [form, setForm] = useState<FormState>(defaultState)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [step, setStep] = useState<SignInStep>('credentials')
-  const [mfaStrategy, setMfaStrategy] = useState<MfaStrategy>(null)
+  const [secondFactorStrategy, setSecondFactorStrategy] = useState<SecondFactorStrategy>(null)
   const [loading, setLoading] = useState(false)
   const [oauthLoading, setOauthLoading] = useState<'oauth_github' | 'oauth_google' | null>(null)
 
@@ -72,60 +72,49 @@ export function SignInForm() {
       return
     }
 
-    await setActive({
-      session: sessionId,
-      navigate: async ({ decorateUrl }) => {
-        window.location.assign(decorateUrl(AUTH_COMPLETE_PATH))
-      },
-    })
+    await setActive({ session: sessionId })
+    window.location.assign(AUTH_COMPLETE_PATH)
   }
 
-  async function handleSignInState() {
-    if (!signIn) {
+  async function handleSignInResult(result: NonNullable<typeof signIn>) {
+    if (result.status === 'complete') {
+      await finishSession(result.createdSessionId)
       return
     }
 
-    if (signIn.status === 'complete') {
-      await finishSession(signIn.createdSessionId)
-      return
-    }
-
-    if (
-      signIn.status === 'needs_second_factor' ||
-      signIn.status === 'needs_client_trust'
-    ) {
-      const strategies = signIn.supportedSecondFactors?.map((factor) => factor.strategy) || []
+    if (result.status === 'needs_second_factor') {
+      const strategies = result.supportedSecondFactors?.map((factor) => factor.strategy) ?? []
 
       if (strategies.includes('email_code')) {
-        await signIn.mfa.sendEmailCode()
-        setMfaStrategy('email_code')
-        setStep('mfa')
+        await result.prepareSecondFactor({ strategy: 'email_code' })
+        setSecondFactorStrategy('email_code')
+        setStep('second_factor')
         return
       }
 
       if (strategies.includes('phone_code')) {
-        await signIn.mfa.sendPhoneCode()
-        setMfaStrategy('phone_code')
-        setStep('mfa')
+        await result.prepareSecondFactor({ strategy: 'phone_code' })
+        setSecondFactorStrategy('phone_code')
+        setStep('second_factor')
         return
       }
 
       if (strategies.includes('totp')) {
-        setMfaStrategy('totp')
-        setStep('mfa')
+        setSecondFactorStrategy('totp')
+        setStep('second_factor')
         return
       }
     }
 
     setErrors({
-      global: 'This account requires an authentication step that is not available in this screen yet.',
+      global: 'This account requires an authentication step that is not supported here yet.',
     })
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (!signIn) {
+    if (!signIn || !isLoaded) {
       return
     }
 
@@ -133,58 +122,47 @@ export function SignInForm() {
     setErrors({})
 
     try {
-      if (step === 'mfa' && mfaStrategy) {
-        if (mfaStrategy === 'email_code') {
-          const response = await signIn.mfa.verifyEmailCode({ code: form.code })
-          if (response.error) {
-            setErrors({ code: getClerkErrorMessage(response.error) })
-            return
-          }
-        } else if (mfaStrategy === 'phone_code') {
-          const response = await signIn.mfa.verifyPhoneCode({ code: form.code })
-          if (response.error) {
-            setErrors({ code: getClerkErrorMessage(response.error) })
-            return
-          }
-        } else {
-          const response = await signIn.mfa.verifyTOTP({ code: form.code })
-          if (response.error) {
-            setErrors({ code: getClerkErrorMessage(response.error) })
-            return
-          }
-        }
+      if (step === 'second_factor' && secondFactorStrategy) {
+        const result = await signIn.attemptSecondFactor({
+          strategy: secondFactorStrategy,
+          code: form.code,
+        })
 
-        await handleSignInState()
+        await handleSignInResult(result)
         return
       }
 
-      const response = await signIn.password({
+      // First factor: password sign-in
+      const result = await signIn.create({
+        strategy: 'password',
         identifier: form.email,
         password: form.password,
       })
 
-      if (response.error) {
+      await handleSignInResult(result)
+    } catch (error) {
+      if (step === 'second_factor') {
+        setErrors({ code: getClerkErrorMessage(error) })
+      } else {
         const fieldError = getClerkFieldError(
-          response.error,
+          error,
           {
             identifier: 'email',
+            email_address: 'email',
             emailAddress: 'email',
             password: 'password',
           },
           'global',
         )
         setErrors({ [fieldError.field]: fieldError.message })
-        return
       }
-
-      await handleSignInState()
     } finally {
       setLoading(false)
     }
   }
 
   async function handleOauth(strategy: 'oauth_github' | 'oauth_google') {
-    if (!signIn) {
+    if (!signIn || !isLoaded) {
       return
     }
 
@@ -192,16 +170,11 @@ export function SignInForm() {
     setOauthLoading(strategy)
 
     try {
-      const response = await signIn.sso({
+      await signIn.authenticateWithRedirect({
         strategy,
-        redirectUrl: readReturnTo(),
-        redirectCallbackUrl: getSsoCallbackUrl(),
+        redirectUrl: AUTH_SSO_CALLBACK_PATH,
+        redirectUrlComplete: AUTH_COMPLETE_PATH,
       })
-
-      if (response.error) {
-        setErrors({ global: getClerkErrorMessage(response.error) })
-        setOauthLoading(null)
-      }
     } catch (error) {
       setErrors({ global: getClerkErrorMessage(error) })
       setOauthLoading(null)
@@ -212,9 +185,9 @@ export function SignInForm() {
     <div className="w-full space-y-6">
       <div className="space-y-3">
         <p className="eyebrow">Sign In</p>
-        <h2 className="text-3xl font-semibold tracking-tight text-white">Welcome back to your publishing workspace.</h2>
+        <h2 className="text-3xl font-semibold tracking-tight text-white">Welcome back to your workspace.</h2>
         <p className="text-sm leading-6 text-slate-300">
-          Continue with GitHub or Google, or use your email and password if you already have a Postiz account.
+          Continue with GitHub or Google, or use your email and password.
         </p>
       </div>
 
@@ -265,7 +238,7 @@ export function SignInForm() {
           </>
         ) : (
           <Field
-            label={mfaStrategy === 'totp' ? 'Authenticator code' : 'Verification code'}
+            label={secondFactorStrategy === 'totp' ? 'Authenticator code' : 'Verification code'}
             name="code"
             type="text"
             value={form.code}
@@ -282,10 +255,10 @@ export function SignInForm() {
 
         <button
           type="submit"
-          disabled={loading || !signIn}
+          disabled={loading || !isLoaded}
           className="w-full rounded-2xl bg-gradient-to-r from-sky-400 to-orange-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-110 disabled:opacity-60"
         >
-          {loading ? 'Working...' : step === 'mfa' ? 'Verify code' : 'Sign in'}
+          {loading ? 'Working...' : step === 'second_factor' ? 'Verify code' : 'Sign in'}
         </button>
       </form>
 

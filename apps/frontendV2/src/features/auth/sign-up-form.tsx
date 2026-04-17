@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useClerk, useSignUp } from '@clerk/react'
-import { AUTH_COMPLETE_PATH, getSsoCallbackUrl, readReturnTo } from '../../lib/auth'
+import { AUTH_COMPLETE_PATH, AUTH_SSO_CALLBACK_PATH } from '../../lib/auth'
 import { getClerkErrorMessage, getClerkFieldError } from '../../lib/clerk'
 
 type SignUpStep = 'register' | 'verify'
@@ -52,7 +52,7 @@ function Field({
 }
 
 export function SignUpForm({ registrationDisabled }: { registrationDisabled: boolean }) {
-  const { signUp } = useSignUp()
+  const { signUp, isLoaded } = useSignUp()
   const { setActive } = useClerk()
   const [form, setForm] = useState<FormState>(defaultState)
   const [errors, setErrors] = useState<FieldErrors>({})
@@ -88,18 +88,14 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
       return
     }
 
-    await setActive({
-      session: sessionId,
-      navigate: async ({ decorateUrl }) => {
-        window.location.assign(decorateUrl(AUTH_COMPLETE_PATH))
-      },
-    })
+    await setActive({ session: sessionId })
+    window.location.assign(AUTH_COMPLETE_PATH)
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (!signUp || registrationDisabled) {
+    if (!signUp || !isLoaded || registrationDisabled) {
       return
     }
 
@@ -108,15 +104,10 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
 
     try {
       if (step === 'verify') {
-        const response = await signUp.verifications.verifyEmailCode({ code: form.code })
+        const result = await signUp.attemptEmailAddressVerification({ code: form.code })
 
-        if (response.error) {
-          setErrors({ code: getClerkErrorMessage(response.error) })
-          return
-        }
-
-        if (signUp.status === 'complete') {
-          await finishSession(signUp.createdSessionId)
+        if (result.status === 'complete') {
+          await finishSession(result.createdSessionId)
           return
         }
 
@@ -126,51 +117,42 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
         return
       }
 
-      const response = await signUp.password({
+      // Step 1: Create the sign-up with email + password
+      await signUp.create({
         emailAddress: form.email,
         password: form.password,
       })
 
-      if (response.error) {
-        const fieldError = getClerkFieldError(
-          response.error,
-          {
-            emailAddress: 'email',
-            password: 'password',
-          },
-          'global',
-        )
-        setErrors({ [fieldError.field]: fieldError.message })
-        return
-      }
-
+      // Step 2: Set company metadata if provided
       if (form.company) {
-        const metadataResponse = await signUp.update({
+        await signUp.update({
           unsafeMetadata: { company: form.company },
         })
-
-        if (metadataResponse.error) {
-          setErrors({ global: getClerkErrorMessage(metadataResponse.error) })
-          return
-        }
       }
 
-      const verificationResponse = await signUp.verifications.sendEmailCode()
-
-      if (verificationResponse.error) {
-        setErrors({ global: getClerkErrorMessage(verificationResponse.error) })
-        return
-      }
+      // Step 3: Prepare email verification
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' })
 
       setPendingEmail(form.email)
       setStep('verify')
+    } catch (error) {
+      const fieldError = getClerkFieldError(
+        error,
+        {
+          email_address: 'email',
+          emailAddress: 'email',
+          password: 'password',
+        },
+        'global',
+      )
+      setErrors({ [fieldError.field]: fieldError.message })
     } finally {
       setLoading(false)
     }
   }
 
   async function handleOauth(strategy: 'oauth_github' | 'oauth_google') {
-    if (!signUp || registrationDisabled) {
+    if (!signUp || !isLoaded || registrationDisabled) {
       return
     }
 
@@ -178,16 +160,11 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
     setOauthLoading(strategy)
 
     try {
-      const response = await signUp.sso({
+      await signUp.authenticateWithRedirect({
         strategy,
-        redirectUrl: readReturnTo(),
-        redirectCallbackUrl: getSsoCallbackUrl(),
+        redirectUrl: AUTH_SSO_CALLBACK_PATH,
+        redirectUrlComplete: AUTH_COMPLETE_PATH,
       })
-
-      if (response.error) {
-        setErrors({ global: getClerkErrorMessage(response.error) })
-        setOauthLoading(null)
-      }
     } catch (error) {
       setErrors({ global: getClerkErrorMessage(error) })
       setOauthLoading(null)
@@ -195,7 +172,7 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
   }
 
   async function resendCode() {
-    if (!signUp) {
+    if (!signUp || !isLoaded) {
       return
     }
 
@@ -203,11 +180,9 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
     setErrors((current) => ({ ...current, code: undefined, global: undefined }))
 
     try {
-      const response = await signUp.verifications.sendEmailCode()
-
-      if (response.error) {
-        setErrors({ code: getClerkErrorMessage(response.error) })
-      }
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' })
+    } catch (error) {
+      setErrors({ code: getClerkErrorMessage(error) })
     } finally {
       setLoading(false)
     }
@@ -220,7 +195,7 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
           <p className="eyebrow">Registration Paused</p>
           <h2 className="text-3xl font-semibold tracking-tight text-white">New sign-ups are temporarily disabled.</h2>
           <p className="text-sm leading-6 text-slate-300">
-            Existing members can still use Clerk sign-in while the migration rollout is underway.
+            Existing members can still sign in while migration is underway.
           </p>
         </div>
         <Link
@@ -238,9 +213,9 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
     <div className="w-full space-y-6">
       <div className="space-y-3">
         <p className="eyebrow">Create Account</p>
-        <h2 className="text-3xl font-semibold tracking-tight text-white">Start with a clean V2 workspace.</h2>
+        <h2 className="text-3xl font-semibold tracking-tight text-white">Start with a clean workspace.</h2>
         <p className="text-sm leading-6 text-slate-300">
-          Sign up with the same Clerk-powered flow, then let Convex provision your personal workspace.
+          Sign up, then Convex will provision your personal workspace automatically.
         </p>
       </div>
 
@@ -304,7 +279,7 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
         ) : (
           <div className="space-y-3">
             <p className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
-              Enter the verification code Clerk sent to{' '}
+              Enter the verification code sent to{' '}
               <span className="font-semibold text-white">{pendingEmail || form.email}</span>.
             </p>
             <Field
@@ -326,7 +301,7 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
 
         <button
           type="submit"
-          disabled={loading || !signUp}
+          disabled={loading || !isLoaded}
           className="w-full rounded-2xl bg-gradient-to-r from-sky-400 to-orange-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-110 disabled:opacity-60"
         >
           {loading ? 'Working...' : step === 'verify' ? 'Verify email' : 'Create account'}
@@ -339,7 +314,7 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
             Send a new code
           </button>
         ) : (
-          <span>Clerk manages verification, MFA, and SSO handoffs.</span>
+          <span />
         )}
         <Link
           to="/auth/login"
