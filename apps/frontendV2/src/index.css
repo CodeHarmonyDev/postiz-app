@@ -1,1 +1,72 @@
 @import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  font-family: "Avenir Next", "Montserrat", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.2), transparent 32%),
+    radial-gradient(circle at top right, rgba(249, 115, 22, 0.18), transparent 28%),
+    linear-gradient(180deg, #050816 0%, #0c1426 100%);
+  --panel: rgba(15, 23, 42, 0.78);
+  --panel-border: rgba(148, 163, 184, 0.18);
+  --panel-soft: rgba(15, 23, 42, 0.55);
+  --text-soft: #94a3b8;
+  --text-bright: #f8fafc;
+  --accent: #f97316;
+  --accent-soft: #38bdf8;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text-bright);
+  background:
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.2), transparent 32%),
+    radial-gradient(circle at top right, rgba(249, 115, 22, 0.18), transparent 28%),
+    linear-gradient(180deg, #050816 0%, #0c1426 100%);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(249, 115, 22, 0.35);
+  color: white;
+}
+
+.panel-surface {
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 24px 90px rgba(2, 6, 23, 0.45);
+  border-radius: 28px;
+}
+
+.panel-soft {
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: var(--panel-soft);
+  backdrop-filter: blur(18px);
+  border-radius: 24px;
+}
+
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #7dd3fc;
+}

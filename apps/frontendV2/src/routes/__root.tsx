@@ -1,11 +1,10 @@
-import { createRootRoute, Outlet } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
+import { Outlet, createRootRouteWithContext } from '@tanstack/react-router'
+import type { AppRouterContext } from '../app/router-context'
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<AppRouterContext>()({
   component: () => (
-    <>
+    <div className="min-h-screen">
       <Outlet />
-      <TanStackRouterDevtools />
-    </>
+    </div>
   ),
 })
