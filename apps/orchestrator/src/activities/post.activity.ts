@@ -159,6 +159,31 @@ export class PostActivity {
 
   @ActivityMethod()
   async postSocial(integration: Integration, posts: Post[]) {
+    // Idempotency guard: if a previous attempt already published this post,
+    // return the existing data instead of calling the external API again.
+    // This prevents double-posting when Temporal retries the activity.
+    const existingState = await this._postService.getPostPublishState(
+      posts[0].id
+    );
+    if (
+      existingState?.state === 'PUBLISHED' &&
+      existingState.releaseId &&
+      existingState.releaseURL
+    ) {
+      console.info(
+        `Post ${posts[0].id} already published (releaseId=${existingState.releaseId}). ` +
+          `Skipping duplicate API call.`
+      );
+      return [
+        {
+          id: posts[0].id,
+          postId: existingState.releaseId,
+          releaseURL: existingState.releaseURL,
+          status: 'published',
+        },
+      ];
+    }
+
     const getIntegration = this._integrationManager.getSocialIntegration(
       integration.providerIdentifier
     );
@@ -193,20 +218,49 @@ export class PostActivity {
       integration
     );
 
-    await this._temporalService.client
-      .getRawClient()
-      .workflow.start('streakWorkflow', {
-        args: [{ organizationId: integration.organizationId }],
-        workflowId: `streak_${integration.organizationId}`,
-        taskQueue: 'main',
-        workflowIdConflictPolicy: 'TERMINATE_EXISTING',
-        typedSearchAttributes: new TypedSearchAttributes([
-          {
-            key: organizationId,
-            value: integration.organizationId,
-          },
-        ]),
-      });
+    // Mark the post as PUBLISHED immediately after the API call succeeds,
+    // before any secondary operations. This ensures that if the activity is
+    // retried (for any reason), the idempotency guard above will catch it.
+    try {
+      await this._postService.updatePost(
+        posts[0].id,
+        postNow[0].postId,
+        postNow[0].releaseURL
+      );
+    } catch (err) {
+      console.warn(
+        `Failed to mark post ${posts[0].id} as PUBLISHED immediately after API call. ` +
+          `The workflow will attempt this again.`,
+        err
+      );
+    }
+
+    try {
+      await this._temporalService.client
+        .getRawClient()
+        .workflow.start('streakWorkflow', {
+          args: [{ organizationId: integration.organizationId }],
+          workflowId: `streak_${integration.organizationId}`,
+          taskQueue: 'main',
+          workflowIdConflictPolicy: 'TERMINATE_EXISTING',
+          typedSearchAttributes: new TypedSearchAttributes([
+            {
+              key: organizationId,
+              value: integration.organizationId,
+            },
+          ]),
+        });
+    } catch (err) {
+      // Gracefully handle streak workflow failures (e.g., WorkflowExecutionAlreadyStartedError).
+      // The primary purpose of this activity — posting to social media — has already succeeded.
+      // A streak workflow failure must never cause the activity to throw, because Temporal would
+      // retry the activity and re-post to the social network, creating an infinite spam loop.
+      console.warn(
+        `Failed to start streakWorkflow for organization ${integration.organizationId}, ` +
+          `but social post succeeded. Ignoring streak error.`,
+        err
+      );
+    }
 
     return postNow;
   }

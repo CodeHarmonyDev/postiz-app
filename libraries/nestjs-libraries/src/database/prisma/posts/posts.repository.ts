@@ -356,6 +356,17 @@ export class PostsRepository {
     });
   }
 
+  getPostPublishState(id: string) {
+    return this._post.model.post.findUnique({
+      where: { id },
+      select: {
+        state: true,
+        releaseId: true,
+        releaseURL: true,
+      },
+    });
+  }
+
   updatePost(id: string, postId: string, releaseURL: string) {
     return this._post.model.post.update({
       where: {

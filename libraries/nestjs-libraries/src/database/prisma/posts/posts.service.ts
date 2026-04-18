@@ -61,6 +61,10 @@ export class PostsService {
     return this._postRepository.searchForMissingThreeHoursPosts();
   }
 
+  getPostPublishState(id: string) {
+    return this._postRepository.getPostPublishState(id);
+  }
+
   updatePost(id: string, postId: string, releaseURL: string) {
     return this._postRepository.updatePost(id, postId, releaseURL);
   }
