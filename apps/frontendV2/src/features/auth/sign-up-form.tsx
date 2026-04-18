@@ -1,71 +1,41 @@
 import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { useClerk, useSignUp } from '@clerk/react'
-import { AUTH_COMPLETE_PATH, AUTH_SSO_CALLBACK_PATH } from '../../lib/auth'
-import { getClerkErrorMessage, getClerkFieldError } from '../../lib/clerk'
+import { useSignUp } from '@clerk/react'
+import { AUTH_COMPLETE_PATH, getSsoCallbackUrl } from '../../lib/auth'
 
 type SignUpStep = 'register' | 'verify'
 
-type FormState = {
-  email: string
-  password: string
-  company: string
-  code: string
+function FieldError({ error }: { error?: { message: string; longMessage?: string } | null }) {
+  if (!error) return null
+  return <span className="text-xs text-rose-300">{error.longMessage || error.message}</span>
 }
 
-type FieldErrors = Partial<Record<keyof FormState | 'global', string>>
-
-const defaultState: FormState = {
-  email: '',
-  password: '',
-  company: '',
-  code: '',
-}
-
-function Field({
-  label,
-  name,
-  value,
-  type,
-  onChange,
-  error,
-}: {
-  label: string
-  name: keyof FormState
-  value: string
-  type: string
-  onChange: (name: keyof FormState, value: string) => void
-  error?: string
-}) {
+function GlobalErrors({ errors }: { errors: Array<{ message: string; longMessage?: string }> | null }) {
+  if (!errors || errors.length === 0) return null
   return (
-    <label className="space-y-2">
-      <span className="text-sm font-medium text-slate-200">{label}</span>
-      <input
-        value={value}
-        onChange={(event) => onChange(name, event.target.value)}
-        type={type}
-        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
-      />
-      {error ? <span className="text-xs text-rose-300">{error}</span> : null}
-    </label>
+    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+      {errors.map((e, i) => (
+        <p key={i}>{e.longMessage || e.message}</p>
+      ))}
+    </div>
   )
 }
 
 export function SignUpForm({ registrationDisabled }: { registrationDisabled: boolean }) {
-  const { signUp, isLoaded } = useSignUp()
-  const { setActive } = useClerk()
-  const [form, setForm] = useState<FormState>(defaultState)
-  const [errors, setErrors] = useState<FieldErrors>({})
+  const { signUp, errors, fetchStatus } = useSignUp()
   const [step, setStep] = useState<SignUpStep>('register')
   const [pendingEmail, setPendingEmail] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [oauthLoading, setOauthLoading] = useState<'oauth_github' | 'oauth_google' | null>(null)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [company, setCompany] = useState('')
+  const [code, setCode] = useState('')
+  const [manualError, setManualError] = useState('')
 
+  const loading = fetchStatus === 'fetching'
+
+  // Recover a pending verification from a previous attempt
   useEffect(() => {
-    if (!signUp?.emailAddress) {
-      return
-    }
-
+    if (!signUp?.emailAddress) return
     if (
       signUp.status &&
       signUp.status !== 'complete' &&
@@ -76,115 +46,84 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
     }
   }, [signUp])
 
-  function updateField(name: keyof FormState, value: string) {
-    setForm((current) => ({ ...current, [name]: value }))
-  }
-
-  async function finishSession(sessionId: string | null) {
-    if (!sessionId) {
-      setErrors({
-        global: 'We could not finish creating your account. Please try again.',
-      })
-      return
-    }
-
-    await setActive({ session: sessionId })
-    window.location.assign(AUTH_COMPLETE_PATH)
-  }
-
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!signUp || registrationDisabled) return
 
-    if (!signUp || !isLoaded || registrationDisabled) {
-      return
-    }
+    setManualError('')
 
-    setLoading(true)
-    setErrors({})
+    if (step === 'verify') {
+      const { error } = await signUp.verifications.verifyEmailCode({ code })
+      if (error) return // errors.fields.code will be auto-populated
 
-    try {
-      if (step === 'verify') {
-        const result = await signUp.attemptEmailAddressVerification({ code: form.code })
-
-        if (result.status === 'complete') {
-          await finishSession(result.createdSessionId)
+      if (signUp.status === 'complete') {
+        const { error: finalizeError } = await signUp.finalize()
+        if (finalizeError) {
+          setManualError(finalizeError.longMessage || finalizeError.message)
           return
         }
-
-        setErrors({
-          code: 'Your email is not verified yet. Please try the code again.',
-        })
+        window.location.assign(AUTH_COMPLETE_PATH)
         return
       }
 
-      // Step 1: Create the sign-up with email + password
-      await signUp.create({
-        emailAddress: form.email,
-        password: form.password,
-      })
-
-      // Step 2: Set company metadata if provided
-      if (form.company) {
-        await signUp.update({
-          unsafeMetadata: { company: form.company },
-        })
-      }
-
-      // Step 3: Prepare email verification
-      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' })
-
-      setPendingEmail(form.email)
-      setStep('verify')
-    } catch (error) {
-      const fieldError = getClerkFieldError(
-        error,
-        {
-          email_address: 'email',
-          emailAddress: 'email',
-          password: 'password',
-        },
-        'global',
-      )
-      setErrors({ [fieldError.field]: fieldError.message })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleOauth(strategy: 'oauth_github' | 'oauth_google') {
-    if (!signUp || !isLoaded || registrationDisabled) {
+      setManualError('Your email is not verified yet. Please try the code again.')
       return
     }
 
-    setErrors({})
-    setOauthLoading(strategy)
+    // Step 1: Sign up with email + password (+ company metadata if provided)
+    const { error } = await signUp.password({
+      emailAddress: email,
+      password,
+      ...(company ? { unsafeMetadata: { company } } : {}),
+    })
+    if (error) return // errors.fields.* will be auto-populated
 
-    try {
-      await signUp.authenticateWithRedirect({
-        strategy,
-        redirectUrl: AUTH_SSO_CALLBACK_PATH,
-        redirectUrlComplete: AUTH_COMPLETE_PATH,
-      })
-    } catch (error) {
-      setErrors({ global: getClerkErrorMessage(error) })
-      setOauthLoading(null)
+    // If auto-completed (no verification needed)
+    if (signUp.status === 'complete') {
+      const { error: finalizeError } = await signUp.finalize()
+      if (finalizeError) {
+        setManualError(finalizeError.longMessage || finalizeError.message)
+        return
+      }
+      window.location.assign(AUTH_COMPLETE_PATH)
+      return
+    }
+
+    // Step 2: Send verification email
+    const { error: sendError } = await signUp.verifications.sendEmailCode()
+    if (sendError) {
+      setManualError(sendError.longMessage || sendError.message)
+      return
+    }
+
+    setPendingEmail(email)
+    setStep('verify')
+  }
+
+  async function handleOauth(strategy: 'oauth_github' | 'oauth_google') {
+    if (!signUp || registrationDisabled) return
+
+    setManualError('')
+
+    const { error } = await signUp.sso({
+      strategy,
+      redirectUrl: AUTH_COMPLETE_PATH,
+      redirectCallbackUrl: getSsoCallbackUrl(),
+    })
+
+    if (error) {
+      setManualError(error.longMessage || error.message)
     }
   }
 
   async function resendCode() {
-    if (!signUp || !isLoaded) {
-      return
-    }
+    if (!signUp) return
 
-    setLoading(true)
-    setErrors((current) => ({ ...current, code: undefined, global: undefined }))
+    setManualError('')
 
-    try {
-      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' })
-    } catch (error) {
-      setErrors({ code: getClerkErrorMessage(error) })
-    } finally {
-      setLoading(false)
+    const { error } = await signUp.verifications.sendEmailCode()
+    if (error) {
+      setManualError(error.longMessage || error.message)
     }
   }
 
@@ -224,18 +163,18 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
           <button
             type="button"
             onClick={() => handleOauth('oauth_github')}
-            disabled={loading || oauthLoading !== null}
+            disabled={loading}
             className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm font-medium text-white transition hover:border-sky-400 disabled:opacity-60"
           >
-            {oauthLoading === 'oauth_github' ? 'Connecting GitHub...' : 'Continue with GitHub'}
+            Continue with GitHub
           </button>
           <button
             type="button"
             onClick={() => handleOauth('oauth_google')}
-            disabled={loading || oauthLoading !== null}
+            disabled={loading}
             className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm font-medium text-white transition hover:border-orange-400 disabled:opacity-60"
           >
-            {oauthLoading === 'oauth_google' ? 'Connecting Google...' : 'Continue with Google'}
+            Continue with Google
           </button>
         </div>
       ) : null}
@@ -251,57 +190,66 @@ export function SignUpForm({ registrationDisabled }: { registrationDisabled: boo
       <form className="space-y-4" onSubmit={handleSubmit}>
         {step === 'register' ? (
           <>
-            <Field
-              label="Email address"
-              name="email"
-              type="email"
-              value={form.email}
-              onChange={updateField}
-              error={errors.email}
-            />
-            <Field
-              label="Password"
-              name="password"
-              type="password"
-              value={form.password}
-              onChange={updateField}
-              error={errors.password}
-            />
-            <Field
-              label="Company or team name"
-              name="company"
-              type="text"
-              value={form.company}
-              onChange={updateField}
-              error={errors.company}
-            />
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-200">Email address</span>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
+              />
+              <FieldError error={errors.fields.emailAddress} />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-200">Password</span>
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
+              />
+              <FieldError error={errors.fields.password} />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-200">Company or team name</span>
+              <input
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                type="text"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
+              />
+            </label>
           </>
         ) : (
           <div className="space-y-3">
             <p className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
               Enter the verification code sent to{' '}
-              <span className="font-semibold text-white">{pendingEmail || form.email}</span>.
+              <span className="font-semibold text-white">{pendingEmail || email}</span>.
             </p>
-            <Field
-              label="Verification code"
-              name="code"
-              type="text"
-              value={form.code}
-              onChange={updateField}
-              error={errors.code}
-            />
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-200">Verification code</span>
+              <input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                type="text"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
+              />
+              <FieldError error={errors.fields.code} />
+            </label>
           </div>
         )}
 
-        {errors.global ? (
+        {manualError ? (
           <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-            {errors.global}
+            {manualError}
           </div>
         ) : null}
 
+        <GlobalErrors errors={errors.global} />
+
         <button
           type="submit"
-          disabled={loading || !isLoaded}
+          disabled={loading}
           className="w-full rounded-2xl bg-gradient-to-r from-sky-400 to-orange-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-110 disabled:opacity-60"
         >
           {loading ? 'Working...' : step === 'verify' ? 'Verify email' : 'Create account'}

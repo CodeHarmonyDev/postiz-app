@@ -1,183 +1,146 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { useClerk, useSignIn } from '@clerk/react'
-import { AUTH_COMPLETE_PATH, AUTH_SSO_CALLBACK_PATH } from '../../lib/auth'
-import { getClerkErrorMessage, getClerkFieldError } from '../../lib/clerk'
+import { useSignIn } from '@clerk/react'
+import { AUTH_COMPLETE_PATH, getSsoCallbackUrl } from '../../lib/auth'
 
 type SignInStep = 'credentials' | 'second_factor'
 type SecondFactorStrategy = 'email_code' | 'phone_code' | 'totp' | null
 
-type FormState = {
-  email: string
-  password: string
-  code: string
+function FieldError({ error }: { error?: { message: string; longMessage?: string } | null }) {
+  if (!error) return null
+  return <span className="text-xs text-rose-300">{error.longMessage || error.message}</span>
 }
 
-type FieldErrors = Partial<Record<keyof FormState | 'global', string>>
-
-const defaultState: FormState = {
-  email: '',
-  password: '',
-  code: '',
-}
-
-function Field({
-  label,
-  name,
-  value,
-  type,
-  onChange,
-  error,
-}: {
-  label: string
-  name: keyof FormState
-  value: string
-  type: string
-  onChange: (name: keyof FormState, value: string) => void
-  error?: string
-}) {
+function GlobalErrors({ errors }: { errors: Array<{ message: string; longMessage?: string }> | null }) {
+  if (!errors || errors.length === 0) return null
   return (
-    <label className="space-y-2">
-      <span className="text-sm font-medium text-slate-200">{label}</span>
-      <input
-        value={value}
-        onChange={(event) => onChange(name, event.target.value)}
-        type={type}
-        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
-      />
-      {error ? <span className="text-xs text-rose-300">{error}</span> : null}
-    </label>
+    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+      {errors.map((e, i) => (
+        <p key={i}>{e.longMessage || e.message}</p>
+      ))}
+    </div>
   )
 }
 
 export function SignInForm() {
-  const { signIn, isLoaded } = useSignIn()
-  const { setActive } = useClerk()
-  const [form, setForm] = useState<FormState>(defaultState)
-  const [errors, setErrors] = useState<FieldErrors>({})
+  const { signIn, errors, fetchStatus } = useSignIn()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [code, setCode] = useState('')
   const [step, setStep] = useState<SignInStep>('credentials')
   const [secondFactorStrategy, setSecondFactorStrategy] = useState<SecondFactorStrategy>(null)
-  const [loading, setLoading] = useState(false)
-  const [oauthLoading, setOauthLoading] = useState<'oauth_github' | 'oauth_google' | null>(null)
+  const [manualError, setManualError] = useState('')
 
-  function updateField(name: keyof FormState, value: string) {
-    setForm((current) => ({ ...current, [name]: value }))
-  }
+  const loading = fetchStatus === 'fetching'
 
-  async function finishSession(sessionId: string | null) {
-    if (!sessionId) {
-      setErrors({
-        global: 'We could not finish signing you in. Please try again.',
-      })
+  async function handleMfaSetup() {
+    if (!signIn) return
+
+    const strategies = signIn.supportedSecondFactors?.map((f) => f.strategy) ?? []
+
+    if (strategies.includes('email_code')) {
+      const { error } = await signIn.mfa.sendEmailCode()
+      if (error) {
+        setManualError(error.longMessage || error.message)
+        return
+      }
+      setSecondFactorStrategy('email_code')
+      setStep('second_factor')
       return
     }
 
-    await setActive({ session: sessionId })
-    window.location.assign(AUTH_COMPLETE_PATH)
-  }
-
-  async function handleSignInResult(result: NonNullable<typeof signIn>) {
-    if (result.status === 'complete') {
-      await finishSession(result.createdSessionId)
+    if (strategies.includes('phone_code')) {
+      const { error } = await signIn.mfa.sendPhoneCode()
+      if (error) {
+        setManualError(error.longMessage || error.message)
+        return
+      }
+      setSecondFactorStrategy('phone_code')
+      setStep('second_factor')
       return
     }
 
-    if (result.status === 'needs_second_factor') {
-      const strategies = result.supportedSecondFactors?.map((factor) => factor.strategy) ?? []
-
-      if (strategies.includes('email_code')) {
-        await result.prepareSecondFactor({ strategy: 'email_code' })
-        setSecondFactorStrategy('email_code')
-        setStep('second_factor')
-        return
-      }
-
-      if (strategies.includes('phone_code')) {
-        await result.prepareSecondFactor({ strategy: 'phone_code' })
-        setSecondFactorStrategy('phone_code')
-        setStep('second_factor')
-        return
-      }
-
-      if (strategies.includes('totp')) {
-        setSecondFactorStrategy('totp')
-        setStep('second_factor')
-        return
-      }
+    if (strategies.includes('totp')) {
+      setSecondFactorStrategy('totp')
+      setStep('second_factor')
+      return
     }
 
-    setErrors({
-      global: 'This account requires an authentication step that is not supported here yet.',
-    })
+    setManualError('This account requires an authentication step that is not supported here yet.')
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!signIn) return
 
-    if (!signIn || !isLoaded) {
-      return
-    }
+    setManualError('')
 
-    setLoading(true)
-    setErrors({})
+    // MFA verification step
+    if (step === 'second_factor' && secondFactorStrategy) {
+      let result: { error: { message: string; longMessage?: string } | null }
 
-    try {
-      if (step === 'second_factor' && secondFactorStrategy) {
-        const result = await signIn.attemptSecondFactor({
-          strategy: secondFactorStrategy,
-          code: form.code,
-        })
+      if (secondFactorStrategy === 'email_code') {
+        result = await signIn.mfa.verifyEmailCode({ code })
+      } else if (secondFactorStrategy === 'phone_code') {
+        result = await signIn.mfa.verifyPhoneCode({ code })
+      } else {
+        result = await signIn.mfa.verifyTOTP({ code })
+      }
 
-        await handleSignInResult(result)
+      if (result.error) return // errors.fields.code will be auto-populated
+
+      if (signIn.status === 'complete') {
+        const { error: finalizeError } = await signIn.finalize()
+        if (finalizeError) {
+          setManualError(finalizeError.longMessage || finalizeError.message)
+          return
+        }
+        window.location.assign(AUTH_COMPLETE_PATH)
         return
       }
 
-      // First factor: password sign-in
-      const result = await signIn.create({
-        strategy: 'password',
-        identifier: form.email,
-        password: form.password,
-      })
-
-      await handleSignInResult(result)
-    } catch (error) {
-      if (step === 'second_factor') {
-        setErrors({ code: getClerkErrorMessage(error) })
-      } else {
-        const fieldError = getClerkFieldError(
-          error,
-          {
-            identifier: 'email',
-            email_address: 'email',
-            emailAddress: 'email',
-            password: 'password',
-          },
-          'global',
-        )
-        setErrors({ [fieldError.field]: fieldError.message })
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleOauth(strategy: 'oauth_github' | 'oauth_google') {
-    if (!signIn || !isLoaded) {
+      setManualError('Could not complete verification. Please try again.')
       return
     }
 
-    setErrors({})
-    setOauthLoading(strategy)
+    // First factor: password sign-in
+    const { error } = await signIn.password({
+      identifier: email,
+      password,
+    })
+    if (error) return // errors.fields.* will be auto-populated
 
-    try {
-      await signIn.authenticateWithRedirect({
-        strategy,
-        redirectUrl: AUTH_SSO_CALLBACK_PATH,
-        redirectUrlComplete: AUTH_COMPLETE_PATH,
-      })
-    } catch (error) {
-      setErrors({ global: getClerkErrorMessage(error) })
-      setOauthLoading(null)
+    if (signIn.status === 'needs_second_factor') {
+      await handleMfaSetup()
+      return
+    }
+
+    if (signIn.status === 'complete') {
+      const { error: finalizeError } = await signIn.finalize()
+      if (finalizeError) {
+        setManualError(finalizeError.longMessage || finalizeError.message)
+        return
+      }
+      window.location.assign(AUTH_COMPLETE_PATH)
+      return
+    }
+
+    setManualError('Could not complete sign-in. Please try again.')
+  }
+
+  async function handleOauth(strategy: 'oauth_github' | 'oauth_google') {
+    if (!signIn) return
+
+    setManualError('')
+
+    const { error } = await signIn.sso({
+      strategy,
+      redirectUrl: AUTH_COMPLETE_PATH,
+      redirectCallbackUrl: getSsoCallbackUrl(),
+    })
+
+    if (error) {
+      setManualError(error.longMessage || error.message)
     }
   }
 
@@ -195,18 +158,18 @@ export function SignInForm() {
         <button
           type="button"
           onClick={() => handleOauth('oauth_github')}
-          disabled={loading || oauthLoading !== null}
+          disabled={loading}
           className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm font-medium text-white transition hover:border-sky-400 disabled:opacity-60"
         >
-          {oauthLoading === 'oauth_github' ? 'Connecting GitHub...' : 'Continue with GitHub'}
+          Continue with GitHub
         </button>
         <button
           type="button"
           onClick={() => handleOauth('oauth_google')}
-          disabled={loading || oauthLoading !== null}
+          disabled={loading}
           className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm font-medium text-white transition hover:border-orange-400 disabled:opacity-60"
         >
-          {oauthLoading === 'oauth_google' ? 'Connecting Google...' : 'Continue with Google'}
+          Continue with Google
         </button>
       </div>
 
@@ -219,43 +182,53 @@ export function SignInForm() {
       <form className="space-y-4" onSubmit={handleSubmit}>
         {step === 'credentials' ? (
           <>
-            <Field
-              label="Email address"
-              name="email"
-              type="email"
-              value={form.email}
-              onChange={updateField}
-              error={errors.email}
-            />
-            <Field
-              label="Password"
-              name="password"
-              type="password"
-              value={form.password}
-              onChange={updateField}
-              error={errors.password}
-            />
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-200">Email address</span>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
+              />
+              <FieldError error={errors.fields.identifier} />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-200">Password</span>
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
+              />
+              <FieldError error={errors.fields.password} />
+            </label>
           </>
         ) : (
-          <Field
-            label={secondFactorStrategy === 'totp' ? 'Authenticator code' : 'Verification code'}
-            name="code"
-            type="text"
-            value={form.code}
-            onChange={updateField}
-            error={errors.code}
-          />
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-slate-200">
+              {secondFactorStrategy === 'totp' ? 'Authenticator code' : 'Verification code'}
+            </span>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              type="text"
+              className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
+            />
+            <FieldError error={errors.fields.code} />
+          </label>
         )}
 
-        {errors.global ? (
+        {manualError ? (
           <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-            {errors.global}
+            {manualError}
           </div>
         ) : null}
 
+        <GlobalErrors errors={errors.global} />
+
         <button
           type="submit"
-          disabled={loading || !isLoaded}
+          disabled={loading}
           className="w-full rounded-2xl bg-gradient-to-r from-sky-400 to-orange-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-110 disabled:opacity-60"
         >
           {loading ? 'Working...' : step === 'second_factor' ? 'Verify code' : 'Sign in'}

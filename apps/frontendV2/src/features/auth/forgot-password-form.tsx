@@ -1,167 +1,115 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { useClerk, useSignIn } from '@clerk/react'
+import { useSignIn } from '@clerk/react'
 import { AUTH_COMPLETE_PATH } from '../../lib/auth'
-import { getClerkErrorMessage, getClerkFieldError } from '../../lib/clerk'
 
 type ResetStep = 'request' | 'verify' | 'success'
 
-type FormState = {
-  email: string
-  code: string
-  password: string
-  repeatPassword: string
+function FieldError({ error }: { error?: { message: string; longMessage?: string } | null }) {
+  if (!error) return null
+  return <span className="text-xs text-rose-300">{error.longMessage || error.message}</span>
 }
 
-type FieldErrors = Partial<Record<keyof FormState | 'global', string>>
-
-const defaultState: FormState = {
-  email: '',
-  code: '',
-  password: '',
-  repeatPassword: '',
-}
-
-function Field({
-  label,
-  name,
-  value,
-  type,
-  onChange,
-  error,
-}: {
-  label: string
-  name: keyof FormState
-  value: string
-  type: string
-  onChange: (name: keyof FormState, value: string) => void
-  error?: string
-}) {
+function GlobalErrors({ errors }: { errors: Array<{ message: string; longMessage?: string }> | null }) {
+  if (!errors || errors.length === 0) return null
   return (
-    <label className="space-y-2">
-      <span className="text-sm font-medium text-slate-200">{label}</span>
-      <input
-        value={value}
-        onChange={(event) => onChange(name, event.target.value)}
-        type={type}
-        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
-      />
-      {error ? <span className="text-xs text-rose-300">{error}</span> : null}
-    </label>
+    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+      {errors.map((e, i) => (
+        <p key={i}>{e.longMessage || e.message}</p>
+      ))}
+    </div>
   )
 }
 
 export function ForgotPasswordForm() {
-  const { signIn, isLoaded } = useSignIn()
-  const { setActive } = useClerk()
-  const [form, setForm] = useState<FormState>(defaultState)
-  const [errors, setErrors] = useState<FieldErrors>({})
+  const { signIn, errors, fetchStatus } = useSignIn()
+  const [email, setEmail] = useState('')
+  const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+  const [repeatPassword, setRepeatPassword] = useState('')
   const [step, setStep] = useState<ResetStep>('request')
   const [resetEmail, setResetEmail] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [manualError, setManualError] = useState('')
 
-  function updateField(name: keyof FormState, value: string) {
-    setForm((current) => ({ ...current, [name]: value }))
-  }
+  const loading = fetchStatus === 'fetching'
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!signIn) return
 
-    if (!signIn || !isLoaded) {
+    setManualError('')
+
+    if (step === 'request') {
+      // Step 1: Create a sign-in with the identifier
+      const { error: createError } = await signIn.create({ identifier: email })
+      if (createError) return // errors.fields.identifier will be auto-populated
+
+      // Step 2: Send the reset password email code
+      const { error: sendError } = await signIn.resetPasswordEmailCode.sendCode()
+      if (sendError) {
+        setManualError(sendError.longMessage || sendError.message)
+        return
+      }
+
+      setResetEmail(email)
+      setStep('verify')
       return
     }
 
-    setLoading(true)
-    setErrors({})
+    if (step !== 'verify') return
 
-    try {
-      if (step === 'request') {
-        // Step 1: Create a sign-in with the identifier, then prepare reset_password_email_code
-        await signIn.create({ identifier: form.email })
-        await signIn.prepareFirstFactor({ strategy: 'reset_password_email_code' })
+    if (password !== repeatPassword) {
+      setManualError('Passwords do not match.')
+      return
+    }
 
-        setResetEmail(form.email)
-        setStep('verify')
-        return
-      }
+    // Step 3: Verify the code
+    const { error: verifyError } = await signIn.resetPasswordEmailCode.verifyCode({ code })
+    if (verifyError) return // errors.fields.code will be auto-populated
 
-      if (step !== 'verify') {
-        return
-      }
-
-      if (form.password !== form.repeatPassword) {
-        setErrors({ repeatPassword: 'Passwords do not match.' })
-        return
-      }
-
-      // Step 2: Verify the code
-      const result = await signIn.attemptFirstFactor({
-        strategy: 'reset_password_email_code',
-        code: form.code,
-      })
-
-      if (result.status === 'needs_new_password') {
-        // Step 3: Set the new password
-        const resetResult = await signIn.resetPassword({
-          password: form.password,
-        })
-
-        if (resetResult.status === 'complete' && resetResult.createdSessionId) {
-          await setActive({ session: resetResult.createdSessionId })
-          window.location.assign(AUTH_COMPLETE_PATH)
+    if (signIn.status !== 'needs_new_password') {
+      // If status jumped to complete (unlikely but handle it)
+      if (signIn.status === 'complete') {
+        const { error: finalizeError } = await signIn.finalize()
+        if (finalizeError) {
+          setManualError(finalizeError.longMessage || finalizeError.message)
           return
         }
-      }
-
-      if (result.status === 'complete' && result.createdSessionId) {
-        await setActive({ session: result.createdSessionId })
         window.location.assign(AUTH_COMPLETE_PATH)
         return
       }
-
-      setStep('success')
-    } catch (error) {
-      if (step === 'request') {
-        const fieldError = getClerkFieldError(
-          error,
-          {
-            identifier: 'email',
-            email_address: 'email',
-            emailAddress: 'email',
-          },
-          'global',
-        )
-        setErrors({ [fieldError.field]: fieldError.message })
-      } else {
-        const fieldError = getClerkFieldError(
-          error,
-          {
-            password: 'password',
-            code: 'code',
-          },
-          'global',
-        )
-        setErrors({ [fieldError.field]: fieldError.message })
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function resendCode() {
-    if (!signIn || !isLoaded) {
+      setManualError('Unexpected state. Please try again.')
       return
     }
 
-    setLoading(true)
-    setErrors({})
+    // Step 4: Submit the new password
+    const { error: submitError } = await signIn.resetPasswordEmailCode.submitPassword({ password })
+    if (submitError) {
+      setManualError(submitError.longMessage || submitError.message)
+      return
+    }
 
-    try {
-      await signIn.prepareFirstFactor({ strategy: 'reset_password_email_code' })
-    } catch (error) {
-      setErrors({ code: getClerkErrorMessage(error) })
-    } finally {
-      setLoading(false)
+    if (signIn.status === 'complete') {
+      const { error: finalizeError } = await signIn.finalize()
+      if (finalizeError) {
+        setManualError(finalizeError.longMessage || finalizeError.message)
+        return
+      }
+      window.location.assign(AUTH_COMPLETE_PATH)
+      return
+    }
+
+    setStep('success')
+  }
+
+  async function resendCode() {
+    if (!signIn) return
+
+    setManualError('')
+
+    const { error } = await signIn.resetPasswordEmailCode.sendCode()
+    if (error) {
+      setManualError(error.longMessage || error.message)
     }
   }
 
@@ -191,56 +139,65 @@ export function ForgotPasswordForm() {
       ) : (
         <form className="space-y-4" onSubmit={handleSubmit}>
           {step === 'request' ? (
-            <Field
-              label="Email address"
-              name="email"
-              type="email"
-              value={form.email}
-              onChange={updateField}
-              error={errors.email}
-            />
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-200">Email address</span>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
+              />
+              <FieldError error={errors.fields.identifier} />
+            </label>
           ) : (
             <>
               <p className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
                 Enter the verification code sent to{' '}
                 <span className="font-semibold text-white">{resetEmail}</span>.
               </p>
-              <Field
-                label="Verification code"
-                name="code"
-                type="text"
-                value={form.code}
-                onChange={updateField}
-                error={errors.code}
-              />
-              <Field
-                label="New password"
-                name="password"
-                type="password"
-                value={form.password}
-                onChange={updateField}
-                error={errors.password}
-              />
-              <Field
-                label="Repeat password"
-                name="repeatPassword"
-                type="password"
-                value={form.repeatPassword}
-                onChange={updateField}
-                error={errors.repeatPassword}
-              />
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-slate-200">Verification code</span>
+                <input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  type="text"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
+                />
+                <FieldError error={errors.fields.code} />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-slate-200">New password</span>
+                <input
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  type="password"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
+                />
+                <FieldError error={errors.fields.password} />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-slate-200">Repeat password</span>
+                <input
+                  value={repeatPassword}
+                  onChange={(e) => setRepeatPassword(e.target.value)}
+                  type="password"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-sky-400"
+                />
+              </label>
             </>
           )}
 
-          {errors.global ? (
+          {manualError ? (
             <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-              {errors.global}
+              {manualError}
             </div>
           ) : null}
 
+          <GlobalErrors errors={errors.global} />
+
           <button
             type="submit"
-            disabled={loading || !isLoaded}
+            disabled={loading}
             className="w-full rounded-2xl bg-gradient-to-r from-sky-400 to-orange-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:brightness-110 disabled:opacity-60"
           >
             {loading ? 'Working...' : step === 'request' ? 'Send reset email' : 'Update password'}
