@@ -112,10 +112,23 @@ export default defineSchema({
     isDeleted: v.boolean(),
     deletedAt: v.optional(v.number()),
     legacyMediaId: v.optional(v.string()),
+    mediaTags: v.optional(v.array(v.string())),
+    checksum: v.optional(v.string()),
   })
     .index('by_organization_id_and_is_deleted', ['organizationId', 'isDeleted'])
     .index('by_uploaded_by_user_id', ['uploadedByUserId'])
-    .index('by_storage_id', ['storageId']),
+    .index('by_storage_id', ['storageId'])
+    .index('by_organization_id_and_kind', ['organizationId', 'kind']),
+
+  mediaTags: defineTable({
+    organizationId: v.id('organizations'),
+    name: v.string(),
+    color: v.string(),
+    isDeleted: v.boolean(),
+    deletedAt: v.optional(v.number()),
+  })
+    .index('by_organization_id_and_is_deleted', ['organizationId', 'isDeleted'])
+    .index('by_organization_id_and_name', ['organizationId', 'name']),
 
   integrations: defineTable({
     organizationId: v.id('organizations'),

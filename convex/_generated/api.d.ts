@@ -8,11 +8,14 @@
  * @module
  */
 
+import type * as analytics from "../analytics.js";
 import type * as integrations from "../integrations.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_validators from "../lib/validators.js";
+import type * as media from "../media.js";
 import type * as organizations from "../organizations.js";
 import type * as posts from "../posts.js";
+import type * as settings from "../settings.js";
 import type * as users from "../users.js";
 
 import type {
@@ -22,11 +25,14 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  analytics: typeof analytics;
   integrations: typeof integrations;
   "lib/auth": typeof lib_auth;
   "lib/validators": typeof lib_validators;
+  media: typeof media;
   organizations: typeof organizations;
   posts: typeof posts;
+  settings: typeof settings;
   users: typeof users;
 }>;
 
