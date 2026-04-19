@@ -161,7 +161,7 @@ export const listMembers = query({
 
     const members = await Promise.all(
       memberships.map(async (membership: any) => {
-        const user = await ctx.db.get(membership.userId);
+        const user: any = await ctx.db.get(membership.userId);
 
         return {
           membershipId: String(membership._id),
